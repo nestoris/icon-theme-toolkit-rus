@@ -371,6 +371,7 @@ class SystemThemesDialog {
 class ProgressDialog {
     constructor(parent, title, text) {
         this.cancelled = false;
+        this.destroyed = false; // <--- Флаг уничтожения
         this.dialog = new Gtk.Dialog({
             title: title || 'Пожалуйста, подождите',
             transient_for: parent,
@@ -407,7 +408,8 @@ class ProgressDialog {
     }
 
     setStatus(fraction, text) {
-        if (this.cancelled) return;
+        // Если диалог уже закрыт или отменен — ничего не делаем
+        if (this.cancelled || this.destroyed) return; 
         if (typeof fraction === 'number' && fraction >= 0 && fraction <= 1) {
             this.progress.set_fraction(fraction);
         }
@@ -422,6 +424,8 @@ class ProgressDialog {
     }
 
     close() {
+        if (this.destroyed) return;
+        this.destroyed = true;
         try { this.dialog.destroy(); } catch (e) {}
     }
 }
@@ -1462,19 +1466,21 @@ class MainWindow {
             ok = await theme.load(progress);
         } catch (e) {
             print("Ошибка загрузки: " + e.message);
-        } finally {
-            progress.close();
-        }
+        } // <-- Убрали finally, чтобы не закрывать окно раньше времени
 
         if (ok) {
             theme.checked = true;
             theme.isMain = false;
             this.loadedThemes.push(theme);
             this.renderChips();
-            this.rebuildComparisonAsync(progress);
+            
+            // Передаем прогресс в пересборку таблицы
+            await this.rebuildComparisonAsync(progress);
         } else if (!progress.isCancelled()) {
             print("Не удалось загрузить тему (возможно, это тема курсоров): " + indexPath);
         }
+        
+        progress.close(); // <-- Закрываем окно только когда всё готово
     }
 
     async setMainTheme(theme) {
@@ -2088,12 +2094,22 @@ class MainWindow {
         }
     }
 
-    showCreateDirDialog() {
+    saveFileToDiskSilent() {
+        let text = this.textBuffer.get_text(this.textBuffer.get_start_iter(), this.textBuffer.get_end_iter(), false);
+        text = text.replace(/\r\n/g, '\n');
+        try {
+            let file = Gio.File.new_for_path(this.theme.indexPath);
+            file.replace_contents(text, null, false, Gio.FileCreateFlags.REPLACE_DESTINATION, null);
+            this.originalFileText = text;
+            this.checkTextModified();
+            return true;
+        } catch (e) { return false; }
+    }
+
+    showCreateDirDialog(dirToEdit = null) {
         let dialog = new Gtk.Dialog({
-            title: "Создать каталог",
-            transient_for: this.window,
-            modal: true,
-            default_width: 450
+            title: dirToEdit ? "Добавить секцию" : "Создать каталог",
+            transient_for: this.window, modal: true, default_width: 450
         });
         dialog.add_button("Отмена", Gtk.ResponseType.CANCEL);
         dialog.add_button("Создать", Gtk.ResponseType.OK);
@@ -2106,7 +2122,6 @@ class MainWindow {
         let grid = new Gtk.Grid({ row_spacing: 5, column_spacing: 5 });
         let row = 0;
         
-        // 1. Контекст
         grid.attach(new Gtk.Label({ label: "Контекст (Context):", halign: Gtk.Align.START }), 0, row, 1, 1);
         let ctxCombo = Gtk.ComboBoxText.new_with_entry();
         this.theme.standardContexts.forEach(c => ctxCombo.append_text(c));
@@ -2114,29 +2129,24 @@ class MainWindow {
         grid.attach(ctxCombo, 1, row, 1, 1);
         row++;
         
-        // 2. Размер (динамически из темы)
         grid.attach(new Gtk.Label({ label: "Размер (Size):", halign: Gtk.Align.START }), 0, row, 1, 1);
         let sizeCombo = Gtk.ComboBoxText.new_with_entry();
-        
         let sizes = new Set();
         for (let [dirName, info] of this.theme.dirInfo) {
             if (info.size) sizes.add(String(info.size));
             if (dirName.includes('scalable')) sizes.add('scalable');
         }
-        // Сортируем: сначала числа по возрастанию, потом scalable
         let sortedSizes = Array.from(sizes).sort((a, b) => {
             if (a === 'scalable') return 1;
             if (b === 'scalable') return -1;
             return parseInt(a) - parseInt(b);
         });
-        if (sortedSizes.length === 0) sortedSizes = ["16", "22", "24", "32", "48"]; // Fallback
-        
+        if (sortedSizes.length === 0) sortedSizes = ["16", "22", "24", "32", "48"];
         sortedSizes.forEach(s => sizeCombo.append_text(s));
         sizeCombo.set_active(0);
         grid.attach(sizeCombo, 1, row, 1, 1);
         row++;
         
-        // 3. Масштаб
         grid.attach(new Gtk.Label({ label: "Масштаб (Scale):", halign: Gtk.Align.START }), 0, row, 1, 1);
         let scaleCombo = Gtk.ComboBoxText.new_with_entry();
         ["1", "2", "3"].forEach(s => scaleCombo.append_text(s));
@@ -2144,30 +2154,26 @@ class MainWindow {
         grid.attach(scaleCombo, 1, row, 1, 1);
         row++;
         
-        // 4. Вариант
         grid.attach(new Gtk.Label({ label: "Вариант (папка):", halign: Gtk.Align.START }), 0, row, 1, 1);
         let variantEntry = new Gtk.Entry({ placeholder_text: "например, symbolic" });
         grid.attach(variantEntry, 1, row, 1, 1);
         row++;
         
-        // 5. Тип (с пустым вариантом)
         grid.attach(new Gtk.Label({ label: "Тип (Type):", halign: Gtk.Align.START }), 0, row, 1, 1);
         let typeCombo = new Gtk.ComboBoxText();
         ["", "Fixed", "Scalable", "Threshold"].forEach(t => typeCombo.append_text(t));
-        typeCombo.set_active(0); // Пустой по умолчанию
+        typeCombo.set_active(0);
         grid.attach(typeCombo, 1, row, 1, 1);
         row++;
         
-        // 6. Итоговый путь
         grid.attach(new Gtk.Label({ label: "Итоговый путь:", halign: Gtk.Align.START }), 0, row, 1, 1);
-        let pathEntry = new Gtk.Entry({ text: "" });
+        let pathEntry = new Gtk.Entry({ text: dirToEdit || "" });
         grid.attach(pathEntry, 1, row, 1, 1);
         row++;
         
         content.pack_start(grid, false, false, 0);
         
-        // --- Логика автогенерации пути ---
-        let userEditedPath = false;
+        let userEditedPath = (dirToEdit !== null);
         let isUpdatingPath = false;
         
         pathEntry.connect('changed', () => { if (!isUpdatingPath) userEditedPath = true; });
@@ -2191,11 +2197,34 @@ class MainWindow {
             isUpdatingPath = false;
         };
         
-        ctxCombo.connect('changed', updatePath);
-        sizeCombo.connect('changed', updatePath);
-        scaleCombo.connect('changed', updatePath);
-        variantEntry.connect('changed', updatePath);
-        updatePath();
+        // Автоматическая подстановка параметров, если мы исправляем секцию
+        if (dirToEdit) {
+            let parts = dirToEdit.split('/');
+            let sizeIdx = -1;
+            for (let i = parts.length - 1; i >= 0; i--) {
+                if (!isNaN(parseInt(parts[i])) || parts[i] === 'scalable') {
+                    sizeIdx = i;
+                    break;
+                }
+            }
+            if (sizeIdx !== -1) {
+                let sizeStr = parts[sizeIdx];
+                let idx = sortedSizes.indexOf(sizeStr);
+                if (idx >= 0) sizeCombo.set_active(idx);
+                else sizeCombo.get_child().set_text(sizeStr);
+                
+                let ctxName = parts[0].charAt(0).toUpperCase() + parts[0].slice(1);
+                if (this.theme.standardContexts.includes(ctxName)) {
+                    ctxCombo.get_child().set_text(ctxName);
+                }
+            }
+        } else {
+            ctxCombo.connect('changed', updatePath);
+            sizeCombo.connect('changed', updatePath);
+            scaleCombo.connect('changed', updatePath);
+            variantEntry.connect('changed', updatePath);
+            updatePath();
+        }
         
         dialog.show_all();
         let resp = dialog.run();
@@ -2255,28 +2284,47 @@ class MainWindow {
 
     // Заглушка для логики исправления
     fixProblem(problem) {
-        print("Попытка исправить: " + problem.msg);
-        if (problem.msg.includes("отсутствует на диске")) {
-            let absPath = GLib.build_filenamev([this.theme.themeDir, problem.dirName]);
-            try {
-                Gio.File.new_for_path(absPath).make_directory(null);
-                print("Каталог создан: " + absPath);
-                // Обновляем данные (в реальности здесь нужно вызывать полную перезагрузку)
-                this.loadThemeData(this.theme.themePath); 
-            } catch (e) {
-                print("Ошибка создания каталога: " + e.message);
-            }
-        } else {
-            // Для остальных проблем пока выводим сообщение
-            let dialog = new Gtk.MessageDialog({
-                transient_for: this.window,
-                modal: true,
-                message_type: Gtk.MessageType.INFO,
-                buttons: Gtk.ButtonsType.OK,
-                text: "Автоматическое исправление этой проблемы пока в разработке."
+        if (problem.probType === 'missing_disk') {
+            let dlg = new Gtk.MessageDialog({
+                transient_for: this.window, modal: true, message_type: Gtk.MessageType.QUESTION, buttons: Gtk.ButtonsType.YES_NO,
+                text: `Создать пустой каталог "${problem.dirName}" на диске?`
             });
-            dialog.run();
-            dialog.destroy();
+            if (dlg.run() === Gtk.ResponseType.YES) {
+                let absPath = GLib.build_filenamev([this.theme.themeDir, problem.dirName]);
+                try {
+                    Gio.File.new_for_path(absPath).make_directory_with_parents(null);
+                    this.loadThemeData(this.theme.themePath, true);
+                } catch (e) { print("Ошибка: " + e.message); }
+            }
+            dlg.destroy();
+        } 
+        else if (problem.probType === 'missing_directories') {
+            let dlg = new Gtk.MessageDialog({
+                transient_for: this.window, modal: true, message_type: Gtk.MessageType.QUESTION, buttons: Gtk.ButtonsType.YES_NO,
+                text: `Внести каталог "${problem.dirName}" в список Directories?`
+            });
+            if (dlg.run() === Gtk.ResponseType.YES) {
+                if (!this.theme.directories.includes(problem.dirName)) {
+                    this.theme.directories.push(problem.dirName);
+                    this.updateIconThemeKey("Directories", this.theme.directories.join(','));
+                    this.saveFileToDiskSilent(); // Сохраняем изменения
+                    this.loadThemeData(this.theme.themePath, true);
+                }
+            }
+            dlg.destroy();
+        }
+        else if (problem.probType === 'missing_section') {
+            this.showCreateDirDialog(problem.dirName);
+        }
+        else if (problem.probType === 'spaces') {
+            let dlg = new Gtk.MessageDialog({
+                transient_for: this.window, modal: true, message_type: Gtk.MessageType.INFO, buttons: Gtk.ButtonsType.OK,
+                text: "Автоисправление пробелов пока не реализовано."
+            });
+            dlg.run(); dlg.destroy();
+        }
+        else if (problem.probType === 'deadlink') {
+            this.showDeadlinksDialog(problem.dirName);
         }
     }
 
@@ -2381,14 +2429,19 @@ class MainWindow {
         
         let types = new Set();
         for (let p of dirProblems) {
-            if (p.msg.includes("Битый симлинк")) types.add("Битые симлинки");
-            else if (p.msg.includes("содержит пробелы")) types.add("Пробелы");
-            else if (p.msg.includes("отсутствует на диске")) types.add("Нет на диске");
+            if (p.probType === 'deadlink') types.add("Битые симлинки");
+            else if (p.probType === 'spaces' || p.probType === 'spaces_file') types.add("Пробелы");
+            else if (p.probType === 'missing_disk') types.add("Нет на диске");
+            else if (p.probType === 'missing_directories') types.add("Нет в Directories");
+            else if (p.probType === 'missing_section') types.add("Нет секции");
             else types.add("Другое");
         }
         
         let arr = Array.from(types);
-        if (arr.length === 1 && dirProblems.length === 1 && arr[0] === "Битые симлинки") return "Битый симлинк";
+        if (arr.length === 1 && dirProblems.length === 1) {
+            if (arr[0] === "Битые симлинки") return "Битый симлинк";
+            return arr[0];
+        }
         return arr.join(", ");
     }
 
@@ -2425,22 +2478,24 @@ class MainWindow {
             let children = this.fixMenu.get_children();
             for (let c of children) this.fixMenu.remove(c);
 
-            let deadlinks = dirProblems.filter(p => p.msg.includes("Битый симлинк"));
-            if (deadlinks.length > 0) {
-                let item = new Gtk.MenuItem({ label: `Битые симлинки (${deadlinks.length})` });
-                item.connect('activate', () => this.showDeadlinksDialog(dirName));
-                this.fixMenu.append(item);
+            // Группируем проблемы по типу
+            let uniqueTypes = new Set();
+            for (let p of dirProblems) {
+                uniqueTypes.add(p.probType || 'unknown');
             }
 
-            let spaces = dirProblems.filter(p => p.msg.includes("содержит пробелы"));
-            if (spaces.length > 0) {
-                let item = new Gtk.MenuItem({ label: "Пробелы в именах" });
+            for (let type of uniqueTypes) {
+                let probsOfType = dirProblems.filter(p => (p.probType || 'unknown') === type);
+                let label = "";
+                
+                if (type === 'deadlink') label = `Битые симлинки (${probsOfType.length})`;
+                else if (type === 'spaces' || type === 'spaces_file') label = `Пробелы в именах (${probsOfType.length})`;
+                else label = probsOfType[0].msg; // Для одиночных проблем показываем текст ошибки
+
+                let item = new Gtk.MenuItem({ label: label });
                 item.connect('activate', () => {
-                    let d = new Gtk.MessageDialog({
-                        transient_for: this.window, modal: true, message_type: Gtk.MessageType.INFO, 
-                        buttons: Gtk.ButtonsType.OK, text: "Автоисправление пробелов пока не реализовано."
-                    });
-                    d.run(); d.destroy();
+                    if (type === 'deadlink') this.showDeadlinksDialog(dirName);
+                    else this.fixProblem(probsOfType[0]); // Передаем первую проблему из группы
                 });
                 this.fixMenu.append(item);
             }
@@ -3237,12 +3292,11 @@ class MainWindow {
     }
 
     async loadThemeData(themePath, forceReload = false) {
-        // Если тема уже в памяти и мы не требуем перезагрузки, просто берем её
         let existing = this.loadedThemes.find(t => t.indexPath === themePath);
+        
         if (existing && !forceReload) {
             this.theme = existing;
         } else {
-            // Создаем новый объект, чтобы перечитать диск
             this.theme = new ThemeModule.Theme(themePath);
             
             let themeName = GLib.path_get_basename(GLib.path_get_dirname(themePath));
@@ -3253,32 +3307,30 @@ class MainWindow {
                 success = await this.theme.load(progress); 
             } catch (e) {
                 print("Ошибка загрузки: " + e.message);
-            } finally {
-                progress.close();
-            }
+            } // <-- Убрали finally
 
             if (!success) {
-                if (!progress.isCancelled()) print("Не удалось загрузить тему (возможно, это тема курсоров).");
+                if (!progress.isCancelled()) print("Не удалось загрузить тему.");
+                progress.close();
                 return;
             }
 
-            // Обновляем список тем
             if (themePath) {
                 let idx = this.loadedThemes.findIndex(t => t.indexPath === themePath);
                 if (idx !== -1) {
-                    // Если тема уже была в списке, заменяем её на свежую
                     this.theme.checked = this.loadedThemes[idx].checked;
                     this.theme.isMain = this.loadedThemes[idx].isMain;
                     this.loadedThemes[idx] = this.theme;
                 } else {
-                    // Если темы не было, добавляем
                     this.theme.checked = true;
                     this.theme.isMain = (themePath === this.settings.mainThemePath);
                     this.loadedThemes.push(this.theme);
                 }
                 this.renderChips();
-                await this.rebuildComparisonAsync(null); // <--- АСИНХРОННЫЙ ВЫЗОВ
+                
+                await this.rebuildComparisonAsync(progress); // Передаем прогресс
             }
+            progress.close(); // <-- Закрываем в конце
         }
 
         // ==========================================

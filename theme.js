@@ -152,12 +152,20 @@ var Theme = class Theme {
                     this.standardContexts.push(ctxName);
                 }
 
+                if (!this.iniData[dirName]) {
+                    this.problems.push({ 
+                        type: 'error', 
+                        line: dirsLine, 
+                        dirName: dirName, 
+                        probType: 'missing_section',
+                        msg: `Отсутствует секция [${dirName}] в index.theme.` 
+                    });
+                }
+
                 if (dirName.includes(' ')) {
                     let l = secLine >= 0 ? secLine : dirsLine;
                     this.problems.push({ 
-                        type: 'error', 
-                        line: l, 
-                        dirName: dirName, // <--- ДОБАВЛЕНО: привязка к каталогу
+                        type: 'error', line: l, dirName: dirName, probType: 'spaces',
                         msg: `Каталог "${dirName}" содержит пробелы.` 
                     });
                 }
@@ -168,6 +176,39 @@ var Theme = class Theme {
     }
 
     async _scanFiles(progress) {
+        // 1. Ищем папки на диске, которых нет в Directories
+        let themeDirFile = Gio.File.new_for_path(this.themeDir);
+        try {
+            let enumr = themeDirFile.enumerate_children('standard::name,standard::type', Gio.FileQueryInfoFlags.NONE, null);
+            let info;
+            while ((info = enumr.next_file(null)) !== null) {
+                if (info.get_file_type() === Gio.FileType.DIRECTORY) {
+                    let topDir = info.get_name();
+                    if (topDir === 'cursors') continue;
+                    let topDirPath = GLib.build_filenamev([this.themeDir, topDir]);
+                    let subEnumr = Gio.File.new_for_path(topDirPath).enumerate_children('standard::name,standard::type', Gio.FileQueryInfoFlags.NONE, null);
+                    let subInfo;
+                    while ((subInfo = subEnumr.next_file(null)) !== null) {
+                        if (subInfo.get_file_type() === Gio.FileType.DIRECTORY) {
+                            let subDir = subInfo.get_name();
+                            let fullRelPath = topDir + '/' + subDir;
+                            if (!this.directories.includes(fullRelPath)) {
+                                this.problems.push({
+                                    type: 'error', line: 0, dirName: fullRelPath, probType: 'missing_directories',
+                                    msg: `Каталог "${fullRelPath}" отсутствует в Directories.`
+                                });
+                                // Добавляем в dirInfo, чтобы он был виден в таблице
+                                this.dirInfo.set(fullRelPath, { rawParams: {}, context: '', size: parseInt(subDir) || null, scale: null, type: 'Fixed' });
+                            }
+                        }
+                    }
+                    subEnumr.close(null);
+                }
+            }
+            enumr.close(null);
+        } catch (e) {}
+
+        // 2. Обычное сканирование
         let totalDirs = this.directories.length;
         let processed = 0;
 
@@ -184,7 +225,7 @@ var Theme = class Theme {
             let lineNum = l ? (l.secLine >= 0 ? l.secLine : l.dirLine) : -1;
 
             if (!dir.query_exists(null)) {
-                this.problems.push({ type: 'error', line: lineNum, dirName: dirName, msg: `Каталог "${dirName}" отсутствует на диске.` });
+                this.problems.push({ type: 'error', line: lineNum, dirName: dirName, probType: 'missing_disk', msg: `Каталог "${dirName}" отсутствует на диске.` });
                 processed++;
                 continue;
             }
@@ -225,7 +266,7 @@ var Theme = class Theme {
 
                     let baseName = fileName.substring(0, dotIdx);
                     if (baseName.includes(' ')) {
-                        this.problems.push({ type: 'error', line: lineNum, dirName: dirName, msg: `Файл "${fileName}" содержит пробелы.` });
+                        this.problems.push({ type: 'error', line: lineNum, dirName: dirName, probType: 'spaces_file', msg: `Файл "${fileName}" содержит пробелы.` });
                     }
 
                     let isSymlink = fileInfo.get_is_symlink();
@@ -239,7 +280,7 @@ var Theme = class Theme {
 
                         if (!Gio.File.new_for_path(resolvedTarget).query_exists(null)) {
                             this.problems.push({ 
-                                type: 'error', line: lineNum, dirName: dirName, 
+                                type: 'error', line: lineNum, dirName: dirName, probType: 'deadlink',
                                 msg: `Битый симлинк: ${dirName}/${fileName} -> ${target}`,
                                 filePath: absDir + '/' + fileName, targetName: GLib.path_get_basename(target)
                             });
