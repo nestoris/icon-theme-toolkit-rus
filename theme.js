@@ -15,6 +15,8 @@ var Theme = class Theme {
         this.icons = new Map();      
         this.problems = [];          
         this.isLoaded = false;
+        this.contextMap = new Map();     // "Applications" -> "apps"
+        this.standardContexts = ["Actions", "Applications", "Apps", "Categories", "Devices", "FileSystems", "MimeTypes", "Mimes", "Places", "Status"];
     }
 
     async load() {
@@ -115,6 +117,18 @@ var Theme = class Theme {
                     type: params['Type'] || 'Fixed'
                 });
 
+                let folderPart = dirName.split('/')[0];
+                let ctxName = params['Context'] || (folderPart.charAt(0).toUpperCase() + folderPart.slice(1));
+                
+                // Запоминаем связь: Context=Applications -> папка apps
+                if (!this.contextMap.has(ctxName)) {
+                    this.contextMap.set(ctxName, folderPart);
+                }
+                
+                if (!this.standardContexts.includes(ctxName)) {
+                    this.standardContexts.push(ctxName);
+                }
+
                 if (dirName.includes(' ')) {
                     let l = secLine >= 0 ? secLine : dirsLine;
                     this.problems.push({ type: 'error', line: l, dirName: dirName, msg: `Каталог "${dirName}" содержит пробелы.` });
@@ -181,7 +195,14 @@ var Theme = class Theme {
                 }
 
                 if (!this.icons.has(baseName)) this.icons.set(baseName, []);
-                this.icons.get(baseName).push({ dirName, fileName, fullPath: absDir + '/' + fileName, isSymlink });
+                this.icons.get(baseName).push({ 
+                    dirName: dirName, 
+                    fileName: fileName, 
+                    fullPath: absDir + '/' + fileName, 
+                    isSymlink: isSymlink,
+                    size: this.dirInfo.get(dirName).size,
+                    context: this.dirInfo.get(dirName).context
+                });
             }
             enumerator.close(null);
         }
