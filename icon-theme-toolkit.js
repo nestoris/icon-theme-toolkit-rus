@@ -727,13 +727,19 @@ class MainWindow {
         if (this.filterModel) this.filterModel.refilter();
     }
 
-    rebuildComparison() {
-        let prevSelected = this.currentSelectedIcon; // Запоминаем выбор
-        
+    async rebuildComparisonAsync(progress = null) {
+        let prevSelected = this.currentSelectedIcon;
+        if (progress) progress.setStatus(0.1, "Сбор данных о значках...");
+        await new Promise(r => GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => { r(); return false; }));
+
         this.iconIndex = new Map();
         let checkedThemes = this.loadedThemes.filter(t => t.checked);
 
-        for (let theme of checkedThemes) {
+        for (let i = 0; i < checkedThemes.length; i++) {
+            if (progress && progress.isCancelled()) return;
+            if (progress) progress.setStatus(0.1 + (i / checkedThemes.length) * 0.4, `Обработка темы ${checkedThemes[i].name}...`);
+            
+            let theme = checkedThemes[i];
             for (let [name, occs] of theme.icons) {
                 if (!this.iconIndex.has(name)) {
                     this.iconIndex.set(name, { name: name, occurrences: [], themes: new Set(), contexts: new Set() });
@@ -745,8 +751,60 @@ class MainWindow {
                     if (occ.context) entry.contexts.add(occ.context);
                 }
             }
+            await new Promise(r => GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => { r(); return false; }));
         }
-        this.populateMasterStore();
+
+        if (progress) progress.setStatus(0.5, "Построение таблицы...");
+        await new Promise(r => GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => { r(); return false; }));
+
+        this.masterStore.clear();
+        let mainTheme = this.loadedThemes.find(t => t.isMain);
+        let totalChecked = checkedThemes.length;
+        let keys = Array.from(this.iconIndex.keys());
+        let chunkSize = 1000;
+
+        for (let i = 0; i < keys.length; i += chunkSize) {
+            if (progress && progress.isCancelled()) return;
+            if (progress) progress.setStatus(0.5 + (i / keys.length) * 0.5, `Построение строк ${i} из ${keys.length}...`);
+
+            let end = Math.min(i + chunkSize, keys.length);
+            for (let j = i; j < end; j++) {
+                let name = keys[j];
+                let entry = this.iconIndex.get(name);
+                
+                let color = this.settings.colors.ok;
+                let status = "OK";
+                if (entry.themes.size < totalChecked) {
+                    color = this.settings.colors.missing;
+                    status = `Нет в ${totalChecked - entry.themes.size} темах`;
+                } else {
+                    let symlinkCount = entry.occurrences.filter(o => o.isSymlink).length;
+                    if (symlinkCount === entry.occurrences.length) {
+                        color = this.settings.colors.symlinksOnly;
+                        status = "Только симлинки";
+                    } else if (symlinkCount > 0) {
+                        color = this.settings.colors.hasSymlinks;
+                        status = "Есть симлинки";
+                    }
+                }
+                let ctxArr = Array.from(entry.contexts).filter(Boolean).sort();
+                let ctxStr = ctxArr.length > 1 ? "Multiple" : (ctxArr[0] || "");
+                let hasInMain = mainTheme ? entry.themes.has(mainTheme) : false;
+                let othersCount = entry.themes.size - (hasInMain ? 1 : 0);
+                let flags = 0;
+                if (hasInMain && othersCount === 0) flags |= 1;
+                if (!hasInMain) flags |= 2;
+                if (!hasInMain && othersCount === totalChecked - 1) flags |= 4;
+
+                let iter = this.masterStore.append();
+                this.masterStore.set(iter, [0, 1, 2, 3, 4, 5, 6], [
+                    name, color, `${entry.themes.size}/${totalChecked}`, ctxStr, status, name, flags
+                ]);
+            }
+            await new Promise(r => GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => { r(); return false; }));
+        }
+
+        this.onFilterChanged();
         
         // Восстанавливаем выбор
         if (prevSelected && this.iconIndex.has(prevSelected)) {
@@ -757,13 +815,65 @@ class MainWindow {
                     let path = this.sortModel.get_path(iter);
                     this.compareView.get_selection().select_path(path);
                     this.compareView.scroll_to_cell(path, null, false, 0, 0);
-                    this.updateInspector(prevSelected); // Принудительно обновляем инспектор
+                    this.updateInspector(prevSelected);
                     break;
                 }
             }
         } else {
             this.currentSelectedIcon = null;
         }
+    }
+
+    async updateMainThemeStatusAsync(progress = null) {
+        if (progress) progress.setStatus(0.1, "Обновление статусов...");
+        await new Promise(r => GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => { r(); return false; }));
+
+        let mainTheme = this.loadedThemes.find(t => t.isMain);
+        let totalChecked = this.loadedThemes.filter(t => t.checked).length;
+        let count = this.masterStore.iter_n_children(null);
+        let chunkSize = 2000;
+
+        for (let i = 0; i < count; i += chunkSize) {
+            if (progress && progress.isCancelled()) return;
+            if (progress) progress.setStatus(0.1 + (i / count) * 0.9, `Обновление ${i}/${count}...`);
+
+            let end = Math.min(i + chunkSize, count);
+            for (let j = i; j < end; j++) {
+                let [ok, iter] = this.masterStore.get_iter_from_string(j.toString());
+                if (!ok || !iter) continue;
+
+                let name = this.masterStore.get_value(iter, 5);
+                let entry = this.iconIndex.get(name);
+                if (!entry) continue;
+
+                let color = this.settings.colors.ok;
+                let status = "OK";
+                if (entry.themes.size < totalChecked) {
+                    color = this.settings.colors.missing;
+                    status = `Нет в ${totalChecked - entry.themes.size} темах`;
+                } else {
+                    let symlinkCount = entry.occurrences.filter(o => o.isSymlink).length;
+                    if (symlinkCount === entry.occurrences.length) {
+                        color = this.settings.colors.symlinksOnly;
+                        status = "Только симлинки";
+                    } else if (symlinkCount > 0) {
+                        color = this.settings.colors.hasSymlinks;
+                        status = "Есть симлинки";
+                    }
+                }
+                
+                let hasInMain = mainTheme ? entry.themes.has(mainTheme) : false;
+                let othersCount = entry.themes.size - (hasInMain ? 1 : 0);
+                let flags = 0;
+                if (hasInMain && othersCount === 0) flags |= 1;
+                if (!hasInMain) flags |= 2;
+                if (!hasInMain && othersCount === totalChecked - 1) flags |= 4;
+
+                this.masterStore.set(iter, [1, 4, 6], [color, status, flags]);
+            }
+            await new Promise(r => GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => { r(); return false; }));
+        }
+        this.onFilterChanged();
     }
 
     populateMasterStore() {
@@ -1011,34 +1121,39 @@ class MainWindow {
             theme.isMain = false;
             this.loadedThemes.push(theme);
             this.renderChips();
-            this.rebuildComparison();
+            this.rebuildComparisonAsync(progress);
         } else if (!progress.isCancelled()) {
             print("Не удалось загрузить тему (возможно, это тема курсоров): " + indexPath);
         }
     }
 
-    setMainTheme(theme) {
-        // Снимаем флаг "главной" со всех остальных в РЕАЛЬНОМ списке тем
+    async setMainTheme(theme) {
+        let wasChecked = theme.checked; // Проверяем, участвовала ли тема в сравнении
+        
         for (let t of this.loadedThemes) {
             t.isMain = (t === theme);
-            if (t.isMain) t.checked = true; // Главная тема обязательно участвует в сравнении
+            if (t.isMain) t.checked = true;
         }
         
-        // Сохраняем в настройки
         this.settings.mainThemePath = theme.indexPath;
         this.settings.save();
-        
-        // Перерисовываем чипсы (обновляем звездочку) и пересобираем сравнение
         this.renderChips();
-        this.rebuildComparison();
-
-        // Переключаемся на вкладку "Редактор темы" (индекс 1)
-        this.notebook.set_current_page(1);
         
-        // Загружаем данные темы в редактор
-        this.loadThemeData(theme.indexPath).catch(e => {
-            print("Ошибка загрузки темы в редактор: " + e.message);
-        });
+        const progress = new ProgressDialog(this.window, 'Смена главной темы', 'Перенастройка данных...');
+        
+        if (wasChecked) {
+            // Если тема уже была в сравнении, делаем быструю перенастройку флагов
+            await this.updateMainThemeStatusAsync(progress);
+        } else {
+            // Если тема была отключена, нужно пересобрать индекс заново
+            await this.rebuildComparisonAsync(progress);
+        }
+        
+        progress.close();
+
+        // Переключаемся в редактор и загружаем данные (без прогресса, так как уже в памяти)
+        this.notebook.set_current_page(1);
+        this.loadThemeData(theme.indexPath).catch(e => print(e.message));
     }
     
     showSettingsDialog() {
@@ -1079,7 +1194,7 @@ class MainWindow {
                 this.settings.colors[key] = '#' + r + g + b;
             }
             this.settings.save();
-            this.rebuildComparison(); // Перекрашиваем список
+            this.rebuildComparisonAsync(); // Перекрашиваем список
         }
         dialog.destroy();
     }
@@ -1094,7 +1209,10 @@ class MainWindow {
             
             // Чекбокс
             let chk = new Gtk.CheckButton({ active: t.checked });
-            chk.connect('toggled', () => { t.checked = chk.get_active(); this.rebuildComparison(); });
+            chk.connect('toggled', async () => { 
+                t.checked = chk.get_active(); 
+                await this.rebuildComparisonAsync(null); 
+            });
             chipBox.pack_start(chk, false, false, 0);
             
             // Звездочка
@@ -1134,7 +1252,7 @@ class MainWindow {
             btnX.connect('clicked', () => {
                 this.loadedThemes = this.loadedThemes.filter(x => x !== t);
                 this.renderChips();
-                this.rebuildComparison();
+                this.rebuildComparisonAsync();
             });
             chipBox.pack_start(btnX, false, false, 0);
             
@@ -1157,7 +1275,7 @@ class MainWindow {
         
         // Перерисовываем чипсы (обновляем звездочку) и пересобираем сравнение
         this.renderChips();
-        this.rebuildComparison();
+        this.rebuildComparisonAsync();
 
         // Переключаемся на вкладку "Редактор темы" (индекс 1)
         this.notebook.set_current_page(1);
@@ -1248,23 +1366,67 @@ class MainWindow {
         let innerPaned = new Gtk.Paned({ orientation: Gtk.Orientation.VERTICAL, wide_handle: true });
 
         this.dirStore = new Gtk.ListStore();
-        this.dirStore.set_column_types([GObject.TYPE_STRING, GObject.TYPE_STRING, GObject.TYPE_INT]);
+        // Добавлен 4-й тип (Проблема)
+        this.dirStore.set_column_types([GObject.TYPE_STRING, GObject.TYPE_STRING, GObject.TYPE_INT, GObject.TYPE_STRING]);
         this.dirView = new Gtk.TreeView({ model: this.dirStore, headers_visible: true });
         
+        // Обработчик выбора каталога (одинарный клик)
+        this.dirView.get_selection().connect('changed', () => {
+            let [ok, model, iter] = this.dirView.get_selection().get_selected();
+            if (ok && iter) {
+                let dirName = model.get_value(iter, 0);
+                this.showDirectoryParams(dirName);
+            } else {
+                this.currentSelectedDir = null;
+                this.clearParamsUI();
+                this.lblCurrentDir.set_markup("<i>Выберите каталог в списке выше</i>");
+                this.addParamBtn.set_sensitive(false);
+                this.btnDeleteDir.set_sensitive(false);
+                this.btnFix.set_sensitive(false);
+            }
+        });
+
+        // Обработчик двойного клика (выделение секции в тексте)
+        this.dirView.connect('row-activated', (treeView, path, column) => {
+            let model = treeView.get_model();
+            let [success, iter] = model.get_iter(path); 
+            if (success && iter) {
+                let dirName = model.get_value(iter, 0);
+                this.selectSectionInText(dirName);
+            }
+        });
+
         let r1 = new Gtk.CellRendererText();
-        let c1 = new Gtk.TreeViewColumn({ title: "Путь", expand: true });
+        let c1 = new Gtk.TreeViewColumn({ title: "Путь" });
         c1.pack_start(r1, true); c1.add_attribute(r1, 'text', 0);
+        c1.set_sort_column_id(0);
+        c1.set_expand(true);      // Левая колонка растягивается
+        c1.set_resizable(true);
         this.dirView.append_column(c1);
 
         let r2 = new Gtk.CellRendererText();
         let c2 = new Gtk.TreeViewColumn({ title: "Контекст" });
         c2.pack_start(r2, true); c2.add_attribute(r2, 'text', 1);
+        c2.set_sort_column_id(1);
+        c2.set_expand(false);
+        c2.set_resizable(true);
         this.dirView.append_column(c2);
 
         let r3 = new Gtk.CellRendererText();
         let c3 = new Gtk.TreeViewColumn({ title: "Размер" });
         c3.pack_start(r3, true); c3.add_attribute(r3, 'text', 2);
+        c3.set_sort_column_id(2);
+        c3.set_expand(false);
+        c3.set_resizable(true);
         this.dirView.append_column(c3);
+
+        let r4 = new Gtk.CellRendererText();
+        let c4 = new Gtk.TreeViewColumn({ title: "Проблемы" });
+        c4.pack_start(r4, true); c4.add_attribute(r4, 'text', 3);
+        c4.set_sort_column_id(3);
+        c4.set_expand(false);
+        c4.set_resizable(true);
+        this.dirView.append_column(c4);
 
         let scrollDirs = new Gtk.ScrolledWindow({ vexpand: true });
         scrollDirs.add(this.dirView);
@@ -1289,9 +1451,14 @@ class MainWindow {
         paramActionsBox.pack_start(btnSave, true, true, 0);
         formBox.pack_start(paramActionsBox, false, false, 0);
 
-        this.btnFix = new Gtk.MenuButton({ label: "Исправить проблему", sensitive: false, image: Gtk.Image.new_from_icon_name("dialog-warning-symbolic", Gtk.IconSize.BUTTON), always_show_image: true });
+        this.btnFix = new Gtk.Button({ label: "Исправить проблему", sensitive: false, image: Gtk.Image.new_from_icon_name("dialog-warning-symbolic", Gtk.IconSize.BUTTON), always_show_image: true });
         this.fixMenu = new Gtk.Menu();
-        this.btnFix.set_popup(this.fixMenu);
+        this.btnFix.connect('clicked', (btn) => {
+            if (this.fixMenu.get_children().length > 0) {
+                this.fixMenu.show_all();
+                this.fixMenu.popup_at_widget(btn, Gdk.Gravity.SOUTH_WEST, Gdk.Gravity.NORTH_WEST, null);
+            }
+        });
         formBox.pack_start(this.btnFix, false, false, 0);
 
         let actionBox = new Gtk.Box({ orientation: Gtk.Orientation.HORIZONTAL, spacing: 5 });
@@ -1475,7 +1642,8 @@ class MainWindow {
         this.dirStore.clear();
         for (let [dirName, info] of this.theme.dirInfo) {
             let iter = this.dirStore.append();
-            this.dirStore.set(iter, [0, 1, 2], [dirName, info.context || "", info.size || 0]);
+            let probStr = this.getDirProblemString(dirName);
+            this.dirStore.set(iter, [0, 1, 2, 3], [dirName, info.context || "", info.size || 0, probStr]);
         }
 
         // Если был выбран каталог, обновляем форму
@@ -1857,10 +2025,18 @@ class MainWindow {
         for (let c of children) this.paramsBox.remove(c);
     }
 
+    getDirProblemString(dirName) {
+        let dirProblems = this.theme.problems.filter(p => p.dirName === dirName);
+        if (dirProblems.length === 0) return ""; // Или "OK", если хотите видеть статус
+        if (dirProblems.length === 1) return dirProblems[0].msg;
+        return dirProblems.length + " проблемы: " + dirProblems[0].msg + "...";
+    }
+
     showDirectoryParams(dirName) {
         this.currentSelectedDir = dirName;
         this.clearParamsUI();
         this.addParamBtn.set_sensitive(true);
+        this.btnDeleteDir.set_sensitive(true); // Включаем сразу
         this.lblCurrentDir.set_markup(`<b>Параметры: ${dirName}</b>`);
         
         let info = this.theme.dirInfo.get(dirName);
@@ -2714,7 +2890,7 @@ class MainWindow {
                 this.theme.isMain = (themePath === this.settings.mainThemePath);
                 this.loadedThemes.push(this.theme);
                 this.renderChips();
-                this.rebuildComparison();
+                this.rebuildComparisonAsync(null);
             }
         }
 
@@ -2737,7 +2913,8 @@ class MainWindow {
         this.dirStore.clear();
         for (let [dirName, info] of this.theme.dirInfo) {
             let iter = this.dirStore.append();
-            this.dirStore.set(iter, [0, 1, 2], [dirName, info.context || "", info.size || 0]);
+            let probStr = this.getDirProblemString(dirName);
+            this.dirStore.set(iter, [0, 1, 2, 3], [dirName, info.context || "", info.size || 0, probStr]);
         }
 
         // Загружаем текст в правую панель

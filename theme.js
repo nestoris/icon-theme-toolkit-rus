@@ -154,7 +154,12 @@ var Theme = class Theme {
 
                 if (dirName.includes(' ')) {
                     let l = secLine >= 0 ? secLine : dirsLine;
-                    this.problems.push({ type: 'error', line: l, dirName: dirName, msg: `Каталог "${dirName}" содержит пробелы.` });
+                    this.problems.push({ 
+                        type: 'error', 
+                        line: l, 
+                        dirName: dirName, // <--- ДОБАВЛЕНО: привязка к каталогу
+                        msg: `Каталог "${dirName}" содержит пробелы.` 
+                    });
                 }
             }
         } catch (e) {
