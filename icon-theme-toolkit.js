@@ -426,6 +426,198 @@ class ProgressDialog {
     }
 }
 
+class DeadlinksDialog {
+    constructor(parent, app, dirName) {
+        this.app = app;
+        this.dirName = dirName;
+        this.themeDir = app.theme.themeDir;
+        
+        this.dialog = new Gtk.Dialog({
+            title: `Битые симлинки: ${dirName}`,
+            transient_for: parent,
+            modal: true,
+            default_width: 850,
+            default_height: 450
+        });
+        
+        // Кнопки
+        let btnSave = this.dialog.add_button("Сохранить", Gtk.ResponseType.OK);
+        btnSave.get_style_context().add_class("suggested-action");
+        this.dialog.add_button("Закрыть", Gtk.ResponseType.CLOSE);
+
+        this.buildUI();
+    }
+
+    buildUI() {
+        let content = this.dialog.get_content_area();
+        content.set_spacing(5);
+        content.set_margin_start(10); content.set_margin_end(10);
+        content.set_margin_top(10); content.set_margin_bottom(10);
+
+        let mainBox = new Gtk.Box({ orientation: Gtk.Orientation.VERTICAL, spacing: 5 });
+
+        // Модель: 0-Симлинк, 1-Цель(текст), 2-Превью, 3-Оригинальная цель, 4-Жирность
+        this.store = new Gtk.ListStore();
+        this.store.set_column_types([
+            GObject.TYPE_STRING, GObject.TYPE_STRING, GdkPixbuf.Pixbuf, GObject.TYPE_STRING, GObject.TYPE_INT
+        ]);
+
+        // Собираем битые симлинки из проблем текущего каталога
+        let problems = this.app.theme.problems.filter(p => p.dirName === this.dirName && p.msg.includes("Битый симлинк"));
+        for (let p of problems) {
+            let symlinkRel = p.filePath.substring(this.themeDir.length + 1);
+            let target = p.targetName;
+            
+            let iter = this.store.append();
+            this.store.set(iter, [0, 1, 2, 3, 4], [symlinkRel, target, this.loadPreviewIcon(null), target, 400]);
+        }
+
+        this.view = new Gtk.TreeView({ model: this.store });
+        
+        // Колонка 1: Симлинк
+        let rSym = new Gtk.CellRendererText();
+        let cSym = new Gtk.TreeViewColumn({ title: "Симлинк", expand: true });
+        cSym.pack_start(rSym, true); cSym.add_attribute(rSym, 'text', 0);
+        this.view.append_column(cSym);
+
+        // Колонка 2: Цель (Combo)
+        let cTarget = new Gtk.TreeViewColumn({ title: "Цель (относительно симлинка)", expand: true });
+        
+        let rCombo = new Gtk.CellRendererCombo({ editable: true, has_entry: true, text_column: 1 });
+        cTarget.pack_start(rCombo, true);
+        cTarget.add_attribute(rCombo, 'text', 1);
+        cTarget.add_attribute(rCombo, 'weight', 4); // Жирный шрифт
+        
+        cTarget.set_min_width(250);
+        this.view.append_column(cTarget);
+
+        // Колонка 3: Превью
+        let rPrev = new Gtk.CellRendererPixbuf();
+        let cPrev = new Gtk.TreeViewColumn({ title: "Превью" });
+        cPrev.pack_start(rPrev, false); cPrev.add_attribute(rPrev, 'pixbuf', 2);
+        this.view.append_column(cPrev);
+
+        // Обработка двойного клика по строке
+        this.view.connect('button-press-event', (widget, event) => {
+            let btn = event.get_button()[1];
+            let clicks = event.get_click_count()[1];
+            
+            if (btn === 1 && clicks === 2) { // Левая кнопка, двойной клик
+                let [x, y] = [event.x, event.y];
+                let pathInfo = this.view.get_path_at_pos(Math.floor(x), Math.floor(y));
+                
+                if (pathInfo) {
+                    // В GJS get_path_at_pos возвращает [success, path, column, cell_x, cell_y]
+                    let [success, path, col, cellX, cellY] = pathInfo;
+                    
+                    // Если двойной клик был НЕ по колонке с комбобоксом (cTarget)
+                    if (success && path && col !== cTarget) {
+                        this.openBrowseDialog(path);
+                        return true; // Останавливаем дальнейшую обработку
+                    }
+                }
+            }
+            return false;
+        });
+
+        // Обработка ручного ввода в ComboBox
+        rCombo.connect('edited', (widget, pathStr, newText) => {
+            let [ok, iter] = this.store.get_iter_from_string(pathStr);
+            if (ok) this.updateRowTarget(iter, newText);
+        });
+
+        let scroll = new Gtk.ScrolledWindow({ vexpand: true });
+        scroll.add(this.view);
+        mainBox.pack_start(scroll, true, true, 0);
+
+        content.pack_start(mainBox, true, true, 0);
+        this.dialog.show_all();
+    }
+
+    updateRowTarget(iter, newTarget) {
+        let symlinkRel = this.store.get_value(iter, 0);
+        let originalTarget = this.store.get_value(iter, 3);
+        
+        let symlinkAbs = GLib.build_filenamev([this.themeDir, symlinkRel]);
+        let symlinkDir = Gio.File.new_for_path(symlinkAbs).get_parent();
+        let targetFile = symlinkDir.resolve_relative_path(newTarget);
+        
+        let weight = (newTarget !== originalTarget) ? 700 : 400;
+        let preview = this.loadPreviewIcon(targetFile.query_exists(null) ? targetFile.get_path() : null);
+        
+        this.store.set(iter, [1, 2, 4], [newTarget, preview, weight]);
+    }
+
+    openBrowseDialog(path) {
+        let [ok, iter] = this.store.get_iter(path);
+        if (!ok || !iter) return;
+        
+        let symlinkRel = this.store.get_value(iter, 0);
+        let symlinkAbs = GLib.build_filenamev([this.themeDir, symlinkRel]);
+        
+        let chooser = new Gtk.FileChooserDialog({
+            title: "Выберите файл-цель",
+            action: Gtk.FileChooserAction.OPEN,
+            transient_for: this.dialog,
+            modal: true
+        });
+        chooser.add_button("Отмена", Gtk.ResponseType.CANCEL);
+        chooser.add_button("Выбрать", Gtk.ResponseType.OK);
+        chooser.set_current_folder(GLib.path_get_dirname(symlinkAbs));
+        
+        if (chooser.run() === Gtk.ResponseType.OK) {
+            let chosenAbs = chooser.get_filename();
+            let symlinkDir = Gio.File.new_for_path(symlinkAbs).get_parent();
+            let relFile = symlinkDir.get_relative_path(Gio.File.new_for_path(chosenAbs));
+            
+            let relPath = relFile ? relFile.get_path() : chosenAbs;
+            this.updateRowTarget(iter, relPath);
+        }
+        chooser.destroy();
+    }
+
+    loadPreviewIcon(absPath) {
+        if (absPath) {
+            let pb = pixbufFromFileCached(absPath, 32);
+            if (pb) return pb;
+        }
+        // Если файла нет, показываем иконку "битой ссылки"
+        try {
+            return Gtk.IconTheme.get_default().load_icon("image-missing", 32, 0);
+        } catch (e) {
+            return getTransparentPixbuf();
+        }
+    }
+
+    run() {
+        let resp = this.dialog.run();
+        if (resp === Gtk.ResponseType.OK) {
+            let count = this.store.iter_n_children(null);
+            for (let i = 0; i < count; i++) {
+                let [ok, iter] = this.store.get_iter_from_string(i.toString());
+                if (ok) {
+                    let symlinkRel = this.store.get_value(iter, 0);
+                    let newTarget = this.store.get_value(iter, 1);
+                    let symlinkAbs = GLib.build_filenamev([this.themeDir, symlinkRel]);
+                    
+                    try {
+                        let f = Gio.File.new_for_path(symlinkAbs);
+                        f.delete(null);
+                        f.make_symbolic_link(newTarget, null);
+                    } catch (e) {
+                        print("Ошибка записи симлинка " + symlinkRel + ": " + e.message);
+                    }
+                }
+            }
+            this.dialog.destroy();
+            // Перезагружаем тему, чтобы обновить проблемы и данные
+            this.app.loadThemeData(this.app.theme.themePath, true);
+        } else {
+            this.dialog.destroy();
+        }
+    }
+}
+
 class MainWindow {
     constructor(themePath) {
         this.settings = new SettingsModule.Settings();
@@ -2027,9 +2219,24 @@ class MainWindow {
 
     getDirProblemString(dirName) {
         let dirProblems = this.theme.problems.filter(p => p.dirName === dirName);
-        if (dirProblems.length === 0) return ""; // Или "OK", если хотите видеть статус
-        if (dirProblems.length === 1) return dirProblems[0].msg;
-        return dirProblems.length + " проблемы: " + dirProblems[0].msg + "...";
+        if (dirProblems.length === 0) return "";
+        
+        let types = new Set();
+        for (let p of dirProblems) {
+            if (p.msg.includes("Битый симлинк")) types.add("Битые симлинки");
+            else if (p.msg.includes("содержит пробелы")) types.add("Пробелы");
+            else if (p.msg.includes("отсутствует на диске")) types.add("Нет на диске");
+            else types.add("Другое");
+        }
+        
+        let arr = Array.from(types);
+        if (arr.length === 1 && dirProblems.length === 1 && arr[0] === "Битые симлинки") return "Битый симлинк";
+        return arr.join(", ");
+    }
+
+    showDeadlinksDialog(dirName) {
+        let dlg = new DeadlinksDialog(this.window, this, dirName);
+        dlg.run();
     }
 
     showDirectoryParams(dirName) {
@@ -2057,19 +2264,33 @@ class MainWindow {
         if (dirProblems.length > 0) {
             this.btnDeleteDir.set_sensitive(true);
             
-            // Заполняем меню исправлений
             let children = this.fixMenu.get_children();
             for (let c of children) this.fixMenu.remove(c);
 
-            for (let p of dirProblems) {
-                let item = new Gtk.MenuItem({ label: p.msg });
-                item.connect('activate', () => this.fixProblem(p));
+            let deadlinks = dirProblems.filter(p => p.msg.includes("Битый симлинк"));
+            if (deadlinks.length > 0) {
+                let item = new Gtk.MenuItem({ label: `Битые симлинки (${deadlinks.length})` });
+                item.connect('activate', () => this.showDeadlinksDialog(dirName));
                 this.fixMenu.append(item);
             }
+
+            let spaces = dirProblems.filter(p => p.msg.includes("содержит пробелы"));
+            if (spaces.length > 0) {
+                let item = new Gtk.MenuItem({ label: "Пробелы в именах" });
+                item.connect('activate', () => {
+                    let d = new Gtk.MessageDialog({
+                        transient_for: this.window, modal: true, message_type: Gtk.MessageType.INFO, 
+                        buttons: Gtk.ButtonsType.OK, text: "Автоисправление пробелов пока не реализовано."
+                    });
+                    d.run(); d.destroy();
+                });
+                this.fixMenu.append(item);
+            }
+            
             this.fixMenu.show_all();
             this.btnFix.set_sensitive(true);
         } else {
-            this.btnDeleteDir.set_sensitive(true); // Удалить можно любой каталог
+            this.btnDeleteDir.set_sensitive(true);
             this.btnFix.set_sensitive(false);
         }
     }
@@ -2857,21 +3078,20 @@ class MainWindow {
         print(`Секция [${dirName}] обновлена в тексте.`);
     }
 
-    async loadThemeData(themePath) {
+    async loadThemeData(themePath, forceReload = false) {
+        // Если тема уже в памяти и мы не требуем перезагрузки, просто берем её
         let existing = this.loadedThemes.find(t => t.indexPath === themePath);
-        
-        if (existing) {
-            this.theme = existing; // Берем готовый объект
+        if (existing && !forceReload) {
+            this.theme = existing;
         } else {
+            // Создаем новый объект, чтобы перечитать диск
             this.theme = new ThemeModule.Theme(themePath);
             
-            // Создаем прогресс-диалог
             let themeName = GLib.path_get_basename(GLib.path_get_dirname(themePath));
             const progress = new ProgressDialog(this.window, 'Загрузка темы', 'Загрузка ' + themeName + '...');
 
             let success = false;
             try {
-                // Передаем диалог в загрузчик
                 success = await this.theme.load(progress); 
             } catch (e) {
                 print("Ошибка загрузки: " + e.message);
@@ -2884,13 +3104,22 @@ class MainWindow {
                 return;
             }
 
-            // Добавляем в список сравнения
+            // Обновляем список тем
             if (themePath) {
-                this.theme.checked = true;
-                this.theme.isMain = (themePath === this.settings.mainThemePath);
-                this.loadedThemes.push(this.theme);
+                let idx = this.loadedThemes.findIndex(t => t.indexPath === themePath);
+                if (idx !== -1) {
+                    // Если тема уже была в списке, заменяем её на свежую
+                    this.theme.checked = this.loadedThemes[idx].checked;
+                    this.theme.isMain = this.loadedThemes[idx].isMain;
+                    this.loadedThemes[idx] = this.theme;
+                } else {
+                    // Если темы не было, добавляем
+                    this.theme.checked = true;
+                    this.theme.isMain = (themePath === this.settings.mainThemePath);
+                    this.loadedThemes.push(this.theme);
+                }
                 this.renderChips();
-                this.rebuildComparisonAsync(null);
+                await this.rebuildComparisonAsync(null); // <--- АСИНХРОННЫЙ ВЫЗОВ
             }
         }
 
@@ -2901,10 +3130,9 @@ class MainWindow {
         this.nameEntry.set_text(this.theme.name || "");
         this.commentEntry.set_text(this.theme.comment || "");
         
-        // Читаем Example из iniData
         let iconTheme = this.theme.iniData['Icon Theme'] || {};
         this.exampleEntry.set_text(iconTheme['Example'] || '');
-        this.updateExamplePreview(); // Обновляем картинку
+        this.updateExamplePreview();
         
         this.btnInherits.set_tooltip_text("Текущее: " + (this.theme.inherits || "не задано"));
         this.btnDirectories.set_tooltip_text("Текущее: " + (this.theme.directories.join(', ') || "не задано"));
@@ -2913,7 +3141,7 @@ class MainWindow {
         this.dirStore.clear();
         for (let [dirName, info] of this.theme.dirInfo) {
             let iter = this.dirStore.append();
-            let probStr = this.getDirProblemString(dirName);
+            let probStr = this.getDirProblemString(dirName); // Учитываем новую колонку
             this.dirStore.set(iter, [0, 1, 2, 3], [dirName, info.context || "", info.size || 0, probStr]);
         }
 
@@ -2923,7 +3151,7 @@ class MainWindow {
             let [ok, contents] = file.load_contents(null);
             if (ok) {
                 let text = new TextDecoder('utf-8').decode(contents);
-                text = text.replace(/\r\n/g, '\n'); // Нормализуем
+                text = text.replace(/\r\n/g, '\n');
                 
                 this.originalFileText = text;
                 
@@ -2940,7 +3168,6 @@ class MainWindow {
         let children = this.problemsList.get_children();
         for (let c of children) c.destroy();
 
-        // Сортируем проблемы по важности
         let getPriority = (msg) => {
             if (msg.includes('CRLF') || msg.includes('BOM') || msg.includes('содержит пробелы')) return 1;
             if (msg.includes('Битый симлинк')) return 2;
@@ -2949,7 +3176,6 @@ class MainWindow {
         };
         this.theme.problems.sort((a, b) => getPriority(a.msg) - getPriority(b.msg));
 
-        // Очищаем старые теги
         let start = this.textBuffer.get_start_iter();
         let end = this.textBuffer.get_end_iter();
         this.textBuffer.remove_all_tags(start, end);
