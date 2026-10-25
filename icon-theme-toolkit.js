@@ -1045,17 +1045,26 @@ class MainWindow {
 
         let visualBottom = new Gtk.Box({ orientation: Gtk.Orientation.HORIZONTAL, spacing: 5 });
         visualBottom.pack_start(new Gtk.Label({ label: "Размер превью:" }), false, false, 0);
+        
         this.visualSizeCombo = Gtk.ComboBoxText.new_with_entry();
         this.visualSizeCombo.get_child().set_width_chars(5);
-        this.visualSizeCombo.connect('changed', () => {
+        
+        // При изменении значения вручную (или выборе из списка)
+        this.visualSizeCombo.get_child().connect('changed', () => {
             if (this.isUpdatingVisual) return;
-            let t = this.visualSizeCombo.get_child().get_text() || this.visualSizeCombo.get_active_text();
-            let v = parseInt(t);
-            if (!isNaN(v) && v > 0 && v !== this.visualPreviewSize) {
-                this.visualPreviewSize = v;
-                this.updateVisualPixbufs(); // <--- ТЕПЕРЬ ВЫЗЫВАЕМ ОБНОВЛЕНИЕ КАРТИНОК, А НЕ ПЕРЕСОЗДАНИЕ ТАБЛИЦЫ
+            let size = parseInt(this.visualSizeCombo.get_child().get_text());
+            if (!isNaN(size) && size > 0 && size !== this.settings.visualPreviewSize) {
+                this.settings.visualPreviewSize = size;
+                this.settings.save();
+                this.refreshVisualSizes();
+                this.updateVisualPixbufs(); // Обновляем только картинки
             }
         });
+        
+        this.visualSizeCombo.get_child().set_text(this.settings.visualPreviewSize.toString());
+        visualBottom.pack_start(this.visualSizeCombo, false, false, 0);
+        visualBottom.pack_start(new Gtk.Label({ label: "" }), true, true, 0);
+        visualTab.pack_start(visualBottom, false, false, 0);
         visualBottom.pack_start(this.visualSizeCombo, false, false, 0);
         visualBottom.pack_start(new Gtk.Label({ label: "" }), true, true, 0);
         visualTab.pack_start(visualBottom, false, false, 0);
@@ -1361,19 +1370,6 @@ class MainWindow {
             if (occ.size) sizes.add(Number(occ.size));
         }
         let sortedSizes = Array.from(sizes).sort((a,b) => a-b);
-        
-        this.isUpdatingVisual = true;
-        let currentText = this.visualSizeCombo.get_child().get_text() || this.visualSizeCombo.get_active_text();
-        this.visualSizeCombo.remove_all();
-        for (let s of sortedSizes) this.visualSizeCombo.append_text(s.toString());
-        
-        if (currentText && sortedSizes.includes(parseInt(currentText))) {
-            this.visualSizeCombo.get_child().set_text(currentText);
-        } else if (sortedSizes.length > 0) {
-            this.visualSizeCombo.set_active(0);
-            this.visualPreviewSize = sortedSizes[0];
-        }
-        this.isUpdatingVisual = false;
 
         // Создаем строки (без картинок)
         for (let sz of sortedSizes) {
@@ -1403,7 +1399,7 @@ class MainWindow {
             for (let theme of activeThemes) {
                 let match = entry.occurrences.find(o => o.theme === theme && Number(o.size) === sz);
                 if (match) {
-                    let pb = pixbufFromFileCached(match.fullPath, this.visualPreviewSize);
+                    let pb = pixbufFromFileCached(match.fullPath, this.settings.visualPreviewSize);
                     rowData.push(pb || getTransparentPixbuf());
                     rowData.push(match.isSymlink ? '#D9E6F2' : '#FFFFFF');
                 } else {
@@ -1473,6 +1469,7 @@ class MainWindow {
             theme.isMain = false;
             this.loadedThemes.push(theme);
             this.renderChips();
+            this.refreshVisualSizes();
             
             // Передаем прогресс в пересборку таблицы
             await this.rebuildComparisonAsync(progress);
@@ -1538,10 +1535,18 @@ class MainWindow {
             row++;
         }
         
+        // Настройка размера превью
+        grid.attach(new Gtk.Label({ label: "Размер превью (Visual):", halign: Gtk.Align.START }), 0, row, 1, 1);
+        let sizeSpin = Gtk.SpinButton.new_with_range(1, 1024, 1);
+        sizeSpin.set_value(this.settings.visualPreviewSize);
+        grid.attach(sizeSpin, 1, row, 1, 1);
+        row++;
+        
         content.pack_start(grid, false, false, 0);
         dialog.show_all();
         
         if (dialog.run() === Gtk.ResponseType.OK) {
+            // 1. Сохраняем цвета
             for (let key in colorButtons) {
                 let rgba = colorButtons[key].get_rgba();
                 let r = Math.round(rgba.red * 255).toString(16).padStart(2, '0');
@@ -1549,8 +1554,20 @@ class MainWindow {
                 let b = Math.round(rgba.blue * 255).toString(16).padStart(2, '0');
                 this.settings.colors[key] = '#' + r + g + b;
             }
+            
+            // 2. Сохраняем размер превью
+            this.settings.visualPreviewSize = sizeSpin.get_value_as_int();
+            
+            // 3. Записываем настройки на диск
             this.settings.save();
-            this.rebuildComparisonAsync(); // Перекрашиваем список
+            
+            // 4. Обновляем интерфейс
+            this.refreshVisualSizes();           // Обновляем список в ComboBox
+            this.rebuildComparisonAsync(null);   // Перекрашиваем левую таблицу (из-за новых цветов)
+            
+            if (this.currentSelectedIcon) {
+                this.updateVisualPixbufs();      // Если значок выбран, перерисовываем его превью
+            }
         }
         dialog.destroy();
     }
@@ -1616,6 +1633,33 @@ class MainWindow {
             this.chipsBox.pack_start(chip, false, false, 0);
         }
         this.chipsBox.show_all();
+        this.refreshVisualSizes();
+    }
+
+    refreshVisualSizes() {
+        if (!this.visualSizeCombo) return;
+        this.isUpdatingVisual = true;
+        
+        this.visualSizeCombo.remove_all();
+        let sizes = new Set();
+        
+        // Собираем размеры из всех отмеченных тем
+        for (let t of this.loadedThemes) {
+            if (t.checked) {
+                for (let [, info] of t.dirInfo) {
+                    if (info.size) sizes.add(info.size);
+                }
+            }
+        }
+        
+        let sorted = Array.from(sizes).sort((a,b) => a-b);
+        for (let s of sorted) {
+            this.visualSizeCombo.append_text(s.toString());
+        }
+        
+        // Устанавливаем значение из настроек (даже если его нет в списке, оно применится)
+        this.visualSizeCombo.get_child().set_text(this.settings.visualPreviewSize.toString());
+        this.isUpdatingVisual = false;
     }
 
     setMainTheme(theme) {

@@ -4,6 +4,7 @@ const GLib = imports.gi.GLib;
 
 var Settings = class Settings {
     constructor() {
+        this.visualPreviewSize = 48; // Размер превью по умолчанию
         const configDir = GLib.build_filenamev([
             GLib.get_user_config_dir(), 'icon-theme-toolkit']);
         try { GLib.mkdir_with_parents(configDir, 0o755); } catch (e) {}
@@ -31,6 +32,7 @@ var Settings = class Settings {
             try { this.colors.symlinksOnly = kf.get_string('colors', 'symlinks_only'); } catch (e) {}
             try { this.colors.hasSymlinks  = kf.get_string('colors', 'has_symlinks'); } catch (e) {}
             try { this.colors.ok           = kf.get_string('colors', 'ok'); } catch (e) {}
+            try { this.visualPreviewSize = kf.get_integer('ui', 'visual_preview_size'); } catch (e) {}
 
             try { this.mainThemePath = kf.get_string('main', 'theme_path') || ''; } catch (e) {}
         } catch (e) {
@@ -44,6 +46,7 @@ var Settings = class Settings {
         kf.set_string('colors', 'symlinks_only', this.colors.symlinksOnly);
         kf.set_string('colors', 'has_symlinks', this.colors.hasSymlinks);
         kf.set_string('colors', 'ok', this.colors.ok);
+        kf.set_integer('ui', 'visual_preview_size', this.visualPreviewSize);
 
         kf.set_string('main', 'theme_path', this.mainThemePath || '');
 
