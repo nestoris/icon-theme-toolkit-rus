@@ -2,6 +2,10 @@
 const Gio = imports.gi.Gio;
 const GLib = imports.gi.GLib;
 
+// Включаем асинхронные методы для Gio.File и Gio.FileEnumerator
+Gio._promisify(Gio.File.prototype, 'enumerate_children_async', 'enumerate_children_finish');
+Gio._promisify(Gio.FileEnumerator.prototype, 'next_files_async', 'next_files_finish');
+
 var Theme = class Theme {
     constructor(themePath) {
         this.themePath = themePath;
@@ -19,7 +23,7 @@ var Theme = class Theme {
         this.standardContexts = ["Actions", "Applications", "Apps", "Categories", "Devices", "FileSystems", "MimeTypes", "Mimes", "Places", "Status"];
     }
 
-    async load() {
+    async load(progress = null) {
         if (this.isLoaded) return true;
         this.problems = [];
 
@@ -39,9 +43,28 @@ var Theme = class Theme {
             return false;
         }
 
+        if (progress) progress.setStatus(0.1, 'Парсинг index.theme...');
         this._parseIndexTheme();
-        await this._scanFiles();
+        
+        // Проверка на тему курсоров (если нет секций каталогов, но есть cursors)
+        let cursorsDir = GLib.build_filenamev([this.themeDir, 'cursors']);
+        if (GLib.file_test(cursorsDir, GLib.FileTest.IS_DIR) && this.directories.length === 0) {
+            this.problems.push({ type: 'error', line: 0, msg: 'Это тема курсоров. Редактор значков не поддерживает её.' });
+            return false;
+        }
+
+        try {
+            await this._scanFiles(progress);
+        } catch (e) {
+            if (e.message === 'Cancelled by user') {
+                print("Загрузка отменена пользователем.");
+                return false;
+            }
+            throw e;
+        }
+        
         this.isLoaded = true;
+        if (progress) progress.setStatus(1.0, 'Готово');
         return true;
     }
 
@@ -139,72 +162,101 @@ var Theme = class Theme {
         }
     }
 
-    async _scanFiles() {
+    async _scanFiles(progress) {
+        let totalDirs = this.directories.length;
+        let processed = 0;
+
         for (let dirName of this.directories) {
+            if (progress && progress.isCancelled()) throw new Error('Cancelled by user');
+            if (progress) {
+                progress.setStatus(processed / totalDirs, `Сканирование ${dirName}...`);
+            }
+
             let absDir = GLib.build_filenamev([this.themeDir, dirName]);
             let dir = Gio.File.new_for_path(absDir);
 
-            // Определяем строку для привязки ошибок этого каталога
             let l = this.dirLines.get(dirName);
             let lineNum = l ? (l.secLine >= 0 ? l.secLine : l.dirLine) : -1;
 
             if (!dir.query_exists(null)) {
                 this.problems.push({ type: 'error', line: lineNum, dirName: dirName, msg: `Каталог "${dirName}" отсутствует на диске.` });
+                processed++;
                 continue;
             }
 
-            let enumerator;
+            let enumerator = null;
             try {
-                enumerator = dir.enumerate_children('standard::name,standard::type,standard::is-symlink,standard::symlink-target', Gio.FileQueryInfoFlags.NOFOLLOW_SYMLINKS, null);
-            } catch (e) { continue; }
-
-            let fileInfo;
-            while ((fileInfo = enumerator.next_file(null)) !== null) {
-                let fileName = fileInfo.get_name();
-                let dotIdx = fileName.lastIndexOf('.');
-                if (dotIdx <= 0) continue;
-
-                let ext = fileName.substring(dotIdx).toLowerCase();
-                if (ext !== '.png' && ext !== '.svg' && ext !== '.xpm') continue;
-
-                let baseName = fileName.substring(0, dotIdx);
-                if (baseName.includes(' ')) {
-                    this.problems.push({ type: 'error', line: lineNum, dirName: dirName, msg: `Файл "${fileName}" содержит пробелы.` });
-                }
-
-                let isSymlink = fileInfo.get_is_symlink();
-                let target = null;
-                let resolvedTarget = null;
-
-                if (isSymlink) {
-                    target = fileInfo.get_symlink_target();
-                    let baseDir = GLib.build_filenamev([this.themeDir, dirName]);
-                    resolvedTarget = GLib.canonicalize_filename(target, baseDir);
-
-                    if (!Gio.File.new_for_path(resolvedTarget).query_exists(null)) {
-                        // Привязываем битый симлинк к строке его секции
-                        this.problems.push({ 
-                            type: 'error', 
-                            line: lineNum, 
-                            dirName: dirName, // <--- ДОБАВЛЕНО
-                            msg: `Битый симлинк: ${dirName}/${fileName} -> ${target}`,
-                            filePath: absDir + '/' + fileName,
-                            targetName: GLib.path_get_basename(target)
-                        });
-                    }
-                }
-
-                if (!this.icons.has(baseName)) this.icons.set(baseName, []);
-                this.icons.get(baseName).push({ 
-                    dirName: dirName, 
-                    fileName: fileName, 
-                    fullPath: absDir + '/' + fileName, 
-                    isSymlink: isSymlink,
-                    size: this.dirInfo.get(dirName).size,
-                    context: this.dirInfo.get(dirName).context
-                });
+                enumerator = await dir.enumerate_children_async(
+                    'standard::name,standard::type,standard::is-symlink,standard::symlink-target',
+                    Gio.FileQueryInfoFlags.NOFOLLOW_SYMLINKS,
+                    GLib.PRIORITY_DEFAULT,
+                    null
+                );
+            } catch (e) {
+                processed++;
+                continue;
             }
-            enumerator.close(null);
+
+            let fileInfos;
+            do {
+                if (progress && progress.isCancelled()) {
+                    if (enumerator) enumerator.close(null);
+                    throw new Error('Cancelled by user');
+                }
+
+                try {
+                    fileInfos = await enumerator.next_files_async(200, GLib.PRIORITY_DEFAULT, null);
+                } catch (e) {
+                    break;
+                }
+
+                for (let fileInfo of fileInfos) {
+                    let fileName = fileInfo.get_name();
+                    let dotIdx = fileName.lastIndexOf('.');
+                    if (dotIdx <= 0) continue;
+
+                    let ext = fileName.substring(dotIdx).toLowerCase();
+                    if (ext !== '.png' && ext !== '.svg' && ext !== '.xpm') continue;
+
+                    let baseName = fileName.substring(0, dotIdx);
+                    if (baseName.includes(' ')) {
+                        this.problems.push({ type: 'error', line: lineNum, dirName: dirName, msg: `Файл "${fileName}" содержит пробелы.` });
+                    }
+
+                    let isSymlink = fileInfo.get_is_symlink();
+                    let target = null;
+                    let resolvedTarget = null;
+
+                    if (isSymlink) {
+                        target = fileInfo.get_symlink_target();
+                        let baseDir = GLib.build_filenamev([this.themeDir, dirName]);
+                        resolvedTarget = GLib.canonicalize_filename(target, baseDir);
+
+                        if (!Gio.File.new_for_path(resolvedTarget).query_exists(null)) {
+                            this.problems.push({ 
+                                type: 'error', line: lineNum, dirName: dirName, 
+                                msg: `Битый симлинк: ${dirName}/${fileName} -> ${target}`,
+                                filePath: absDir + '/' + fileName, targetName: GLib.path_get_basename(target)
+                            });
+                        }
+                    }
+
+                    if (!this.icons.has(baseName)) this.icons.set(baseName, []);
+                    this.icons.get(baseName).push({ 
+                        dirName: dirName, fileName: fileName, fullPath: absDir + '/' + fileName, 
+                        isSymlink: isSymlink, 
+                        size: this.dirInfo.get(dirName).size, 
+                        context: this.dirInfo.get(dirName).context,
+                        target: target,
+                        resolvedTarget: resolvedTarget
+                    });
+                }
+            } while (fileInfos.length > 0);
+
+            if (enumerator) {
+                try { enumerator.close(null); } catch (e) {}
+            }
+            processed++;
         }
     }
 };
