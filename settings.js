@@ -12,10 +12,18 @@ var Settings = class Settings {
 
         // Цвета по умолчанию (как в старом компараторе)
         this.colors = {
-            missing: '#CC0000',
+            missing:      '#CC0000',
             symlinksOnly: '#800080',
-            hasSymlinks: '#0000CC',
-            ok: '#000000'
+            hasSymlinks:  '#0000CC',
+            ok:           '#000000'
+        };
+        
+        // Настройки фона и активности
+        this.useColors = {
+            missing: false, symlinksOnly: false, hasSymlinks: false, ok: false
+        };
+        this.bgColors = {
+            missing: '#FFFFFF', symlinksOnly: '#FFFFFF', hasSymlinks: '#FFFFFF', ok: '#FFFFFF'
         };
 
         this.mainThemePath = ''; // Путь к index.theme главной темы
@@ -29,6 +37,15 @@ var Settings = class Settings {
             kf.load_from_file(this.path, GLib.KeyFileFlags.NONE);
 
             try { this.colors.missing      = kf.get_string('colors', 'missing'); } catch (e) {}
+            try { this.bgColors.missing      = kf.get_string('colors', 'bg_missing') || '#FFFFFF'; } catch (e) {}
+            try { this.bgColors.symlinksOnly = kf.get_string('colors', 'bg_symlinks_only') || '#FFFFFF'; } catch (e) {}
+            try { this.bgColors.hasSymlinks  = kf.get_string('colors', 'bg_has_symlinks') || '#FFFFFF'; } catch (e) {}
+            try { this.bgColors.ok           = kf.get_string('colors', 'bg_ok') || '#FFFFFF'; } catch (e) {}
+
+            try { this.useColors.missing      = kf.get_boolean('colors', 'use_missing'); } catch (e) {}
+            try { this.useColors.symlinksOnly = kf.get_boolean('colors', 'use_symlinks_only'); } catch (e) {}
+            try { this.useColors.hasSymlinks  = kf.get_boolean('colors', 'use_has_symlinks'); } catch (e) {}
+            try { this.useColors.ok           = kf.get_boolean('colors', 'use_ok'); } catch (e) {}
             try { this.colors.symlinksOnly = kf.get_string('colors', 'symlinks_only'); } catch (e) {}
             try { this.colors.hasSymlinks  = kf.get_string('colors', 'has_symlinks'); } catch (e) {}
             try { this.colors.ok           = kf.get_string('colors', 'ok'); } catch (e) {}
@@ -47,7 +64,15 @@ var Settings = class Settings {
         kf.set_string('colors', 'has_symlinks', this.colors.hasSymlinks);
         kf.set_string('colors', 'ok', this.colors.ok);
         kf.set_integer('ui', 'visual_preview_size', this.visualPreviewSize);
+        kf.set_string('colors', 'bg_missing', this.bgColors.missing);
+        kf.set_string('colors', 'bg_symlinks_only', this.bgColors.symlinksOnly);
+        kf.set_string('colors', 'bg_has_symlinks', this.bgColors.hasSymlinks);
+        kf.set_string('colors', 'bg_ok', this.bgColors.ok);
 
+        kf.set_boolean('colors', 'use_missing', this.useColors.missing);
+        kf.set_boolean('colors', 'use_symlinks_only', this.useColors.symlinksOnly);
+        kf.set_boolean('colors', 'use_has_symlinks', this.useColors.hasSymlinks);
+        kf.set_boolean('colors', 'use_ok', this.useColors.ok);
         kf.set_string('main', 'theme_path', this.mainThemePath || '');
 
         try { kf.save_to_file(this.path); } catch (e) { print("Ошибка сохранения настроек: " + e.message); }

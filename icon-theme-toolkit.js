@@ -795,8 +795,8 @@ class MainWindow {
         
         this.window = new Gtk.Window({
             title: "Icon Theme Toolkit",
-            default_width: 1200,
-            default_height: 800,
+            default_width: 960,
+            default_height: 630,
             window_position: Gtk.WindowPosition.CENTER
         });
         this.window.connect('destroy', () => Gtk.main_quit());
@@ -1707,7 +1707,8 @@ class MainWindow {
             GObject.TYPE_STRING, // 3 contexts
             GObject.TYPE_STRING, // 4 status
             GObject.TYPE_STRING, // 5 baseName (для лукапа)
-            GObject.TYPE_INT     // 6 bitmask (для фильтра)
+            GObject.TYPE_INT,     // 6 bitmask (для фильтра)
+            GObject.TYPE_STRING  // 7 bg color
         ]);
 
         this.filterModel = new Gtk.TreeModelFilter({ child_model: this.masterStore });
@@ -1735,10 +1736,32 @@ class MainWindow {
         let nameC = new Gtk.TreeViewColumn({ title: 'Имя значка' });
         nameC.pack_start(nameR, true);
         nameC.add_attribute(nameR, 'text', 0);
-        nameC.add_attribute(nameR, 'foreground', 1);
         nameC.set_sort_column_id(0);
         nameC.set_expand(true);
         nameC.set_resizable(true);
+        
+        // Функция для безопасной установки цветов
+        nameC.set_cell_data_func(nameR, (column, cell, model, iter, data) => {
+            let fg = model.get_value(iter, 1);
+            let bg = model.get_value(iter, 7);
+            
+            // Устанавливаем цвет текста (или сбрасываем к теме)
+            if (fg && fg.trim() !== "") {
+                cell.set_property('foreground', fg);
+                cell.set_property('foreground-set', true);
+            } else {
+                cell.set_property('foreground-set', false); // Сброс к цвету GTK
+            }
+            
+            // Устанавливаем цвет фона (или сбрасываем к теме)
+            if (bg && bg.trim() !== "") {
+                cell.set_property('background', bg);
+                cell.set_property('background-set', true);
+            } else {
+                cell.set_property('background-set', false); // Сброс к фону GTK
+            }
+        });
+        
         this.compareView.append_column(nameC);
 
         let covR = new Gtk.CellRendererText();
@@ -1767,6 +1790,26 @@ class MainWindow {
         stC.set_sort_column_id(4);
         stC.set_resizable(true);
         stC.set_expand(false);
+        
+        stC.set_cell_data_func(stR, (column, cell, model, iter, data) => {
+            let fg = model.get_value(iter, 1);
+            let bg = model.get_value(iter, 7);
+            
+            if (fg && fg.trim() !== "") {
+                cell.set_property('foreground', fg);
+                cell.set_property('foreground-set', true);
+            } else {
+                cell.set_property('foreground-set', false);
+            }
+            
+            if (bg && bg.trim() !== "") {
+                cell.set_property('background', bg);
+                cell.set_property('background-set', true);
+            } else {
+                cell.set_property('background-set', false);
+            }
+        });
+        
         this.compareView.append_column(stC);
 
         this.compareView.connect('cursor-changed', () => {
@@ -2233,23 +2276,37 @@ class MainWindow {
                 let name = keys[j];
                 let entry = this.iconIndex.get(name);
                 
-                let color = this.settings.colors.ok;
+                // 1. Определяем статус (statusKey)
+                let statusKey = 'ok';
                 let status = "OK";
+                let symlinkCount = 0;
+                
                 if (entry.themes.size < totalChecked) {
-                    color = this.settings.colors.missing;
+                    statusKey = 'missing';
                     status = `Нет в ${totalChecked - entry.themes.size} темах`;
                 } else {
-                    let symlinkCount = entry.occurrences.filter(o => o.isSymlink).length;
+                    symlinkCount = entry.occurrences.filter(o => o.isSymlink).length;
                     if (symlinkCount === entry.occurrences.length) {
-                        color = this.settings.colors.symlinksOnly;
+                        statusKey = 'symlinksOnly';
                         status = "Только симлинки";
                     } else if (symlinkCount > 0) {
-                        color = this.settings.colors.hasSymlinks;
+                        statusKey = 'hasSymlinks';
                         status = "Есть симлинки";
                     }
                 }
+
+                // 2. Определяем цвета текста и фона
+                let textColor = "";
+                let bgColor = "";
+                
+                if (this.settings.useColors[statusKey]) {
+                    textColor = this.settings.colors[statusKey];
+                    bgColor = this.settings.bgColors[statusKey];
+                }
+
                 let ctxArr = Array.from(entry.contexts).filter(Boolean).sort();
                 let ctxStr = ctxArr.length > 1 ? "Multiple" : (ctxArr[0] || "");
+                
                 let hasInMain = mainTheme ? entry.themes.has(mainTheme) : false;
                 let othersCount = entry.themes.size - (hasInMain ? 1 : 0);
                 let flags = 0;
@@ -2258,13 +2315,13 @@ class MainWindow {
                 if (!hasInMain && othersCount === totalChecked - 1) flags |= 4;
 
                 let iter = this.masterStore.append();
-                this.masterStore.set(iter, [0, 1, 2, 3, 4, 5, 6], [
-                    name, color, `${entry.themes.size}/${totalChecked}`, ctxStr, status, name, flags
+                // Обратите внимание: массив теперь имеет 8 элементов (индексы 0-7)
+                this.masterStore.set(iter, [0, 1, 2, 3, 4, 5, 6, 7], [
+                    name, textColor, `${entry.themes.size}/${totalChecked}`, ctxStr, status, name, flags, bgColor
                 ]);
             }
             await new Promise(r => GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => { r(); return false; }));
         }
-
         this.onFilterChanged();
         
         // Восстанавливаем выбор
@@ -2343,21 +2400,30 @@ class MainWindow {
         let totalChecked = this.loadedThemes.filter(t => t.checked).length;
 
         for (let [name, entry] of this.iconIndex) {
-            let color = this.settings.colors.ok;
+            // 1. Определяем статус (statusKey)
+            let statusKey = 'ok';
             let status = "OK";
             
             if (entry.themes.size < totalChecked) {
-                color = this.settings.colors.missing;
+                statusKey = 'missing';
                 status = `Нет в ${totalChecked - entry.themes.size} темах`;
             } else {
                 let symlinkCount = entry.occurrences.filter(o => o.isSymlink).length;
                 if (symlinkCount === entry.occurrences.length) {
-                    color = this.settings.colors.symlinksOnly;
+                    statusKey = 'symlinksOnly';
                     status = "Только симлинки";
                 } else if (symlinkCount > 0) {
-                    color = this.settings.colors.hasSymlinks;
+                    statusKey = 'hasSymlinks';
                     status = "Есть симлинки";
                 }
+            }
+
+            // 2. Определяем цвета (пустая строка = цвета темы GTK)
+            let textColor = "";
+            let bgColor = "";
+            if (this.settings.useColors[statusKey]) {
+                textColor = this.settings.colors[statusKey];
+                bgColor = this.settings.bgColors[statusKey];
             }
 
             let ctxArr = Array.from(entry.contexts).filter(Boolean).sort();
@@ -2372,8 +2438,9 @@ class MainWindow {
             if (!hasInMain && othersCount === totalChecked - 1) flags |= 4; // Есть во всех, кроме главной
 
             let iter = this.masterStore.append();
-            this.masterStore.set(iter, [0, 1, 2, 3, 4, 5, 6], [
-                name, color, `${entry.themes.size}/${totalChecked}`, ctxStr, status, name, flags
+            // ТЕПЕРЬ ПЕРЕДАЕМ 8 ЭЛЕМЕНТОВ (индексы 0-7)
+            this.masterStore.set(iter, [0, 1, 2, 3, 4, 5, 6, 7], [
+                name, textColor, `${entry.themes.size}/${totalChecked}`, ctxStr, status, name, flags, bgColor
             ]);
         }
         this.onFilterChanged();
@@ -2608,7 +2675,7 @@ class MainWindow {
     }
     
     showSettingsDialog() {
-        let dialog = new Gtk.Dialog({ title: "Настройки", transient_for: this.window, modal: true });
+        let dialog = new Gtk.Dialog({ title: "Настройки", transient_for: this.window, modal: true, default_width: 500 });
         dialog.add_button("Сохранить", Gtk.ResponseType.OK);
         
         let content = dialog.get_content_area();
@@ -2622,49 +2689,86 @@ class MainWindow {
         ];
         
         let colorButtons = {};
+        let bgButtons = {};
+        let useChecks = {};
         let row = 0;
+        
+        // Заголовки колонок
+        grid.attach(new Gtk.Label({ label: "Статус" }), 0, row, 1, 1);
+        grid.attach(new Gtk.Label({ label: "Цвет текста", halign: Gtk.Align.CENTER }), 2, row, 1, 1);
+        grid.attach(new Gtk.Label({ label: "Цвет фона", halign: Gtk.Align.CENTER }), 3, row, 1, 1);
+        row++;
+
         for (let [key, label] of colors) {
+            // 1. Метка (самая левая)
             grid.attach(new Gtk.Label({ label: label, halign: Gtk.Align.START }), 0, row, 1, 1);
-            let btn = new Gtk.ColorButton();
-            let rgba = new Gdk.RGBA();
-            if (rgba.parse(this.settings.colors[key])) btn.set_rgba(rgba);
-            colorButtons[key] = btn;
-            grid.attach(btn, 1, row, 1, 1);
+
+            // 2. Чекбокс
+            let chk = new Gtk.CheckButton({ active: this.settings.useColors[key] });
+            useChecks[key] = chk;
+            grid.attach(chk, 1, row, 1, 1);
+
+            // 3. Кнопка цвета текста
+            let btnFg = new Gtk.ColorButton({ sensitive: chk.get_active() });
+            let rgbaFg = new Gdk.RGBA();
+            if (rgbaFg.parse(this.settings.colors[key])) btnFg.set_rgba(rgbaFg);
+            colorButtons[key] = btnFg;
+            grid.attach(btnFg, 2, row, 1, 1);
+
+            // 4. Кнопка цвета фона
+            let btnBg = new Gtk.ColorButton({ sensitive: chk.get_active() });
+            let rgbaBg = new Gdk.RGBA();
+            if (rgbaBg.parse(this.settings.bgColors[key])) btnBg.set_rgba(rgbaBg);
+            bgButtons[key] = btnBg;
+            grid.attach(btnBg, 3, row, 1, 1);
+
+            // Логика включения/выключения
+            chk.connect('toggled', () => {
+                let active = chk.get_active();
+                btnFg.set_sensitive(active);
+                btnBg.set_sensitive(active);
+            });
+
             row++;
         }
         
         // Настройка размера превью
-        grid.attach(new Gtk.Label({ label: "Размер превью (Visual):", halign: Gtk.Align.START }), 0, row, 1, 1);
+        grid.attach(new Gtk.Label({ label: "Размер превью (Visual):", halign: Gtk.Align.START }), 0, row, 2, 1);
         let sizeSpin = Gtk.SpinButton.new_with_range(1, 1024, 1);
         sizeSpin.set_value(this.settings.visualPreviewSize);
-        grid.attach(sizeSpin, 1, row, 1, 1);
+        grid.attach(sizeSpin, 2, row, 2, 1);
         row++;
         
         content.pack_start(grid, false, false, 0);
         dialog.show_all();
         
         if (dialog.run() === Gtk.ResponseType.OK) {
-            // 1. Сохраняем цвета
             for (let key in colorButtons) {
-                let rgba = colorButtons[key].get_rgba();
-                let r = Math.round(rgba.red * 255).toString(16).padStart(2, '0');
-                let g = Math.round(rgba.green * 255).toString(16).padStart(2, '0');
-                let b = Math.round(rgba.blue * 255).toString(16).padStart(2, '0');
+                // Цвет текста
+                let rgbaFg = colorButtons[key].get_rgba();
+                let r = Math.round(rgbaFg.red * 255).toString(16).padStart(2, '0');
+                let g = Math.round(rgbaFg.green * 255).toString(16).padStart(2, '0');
+                let b = Math.round(rgbaFg.blue * 255).toString(16).padStart(2, '0');
                 this.settings.colors[key] = '#' + r + g + b;
+
+                // Цвет фона
+                let rgbaBg = bgButtons[key].get_rgba();
+                r = Math.round(rgbaBg.red * 255).toString(16).padStart(2, '0');
+                g = Math.round(rgbaBg.green * 255).toString(16).padStart(2, '0');
+                b = Math.round(rgbaBg.blue * 255).toString(16).padStart(2, '0');
+                this.settings.bgColors[key] = '#' + r + g + b;
+
+                // Активность
+                this.settings.useColors[key] = useChecks[key].get_active();
             }
             
-            // 2. Сохраняем размер превью
             this.settings.visualPreviewSize = sizeSpin.get_value_as_int();
-            
-            // 3. Записываем настройки на диск
             this.settings.save();
-            
-            // 4. Обновляем интерфейс
-            this.refreshVisualSizes();           // Обновляем список в ComboBox
-            this.rebuildComparisonAsync(null);   // Перекрашиваем левую таблицу (из-за новых цветов)
+            this.refreshVisualSizes();
+            this.rebuildComparisonAsync(null);
             
             if (this.currentSelectedIcon) {
-                this.updateVisualPixbufs();      // Если значок выбран, перерисовываем его превью
+                this.updateVisualPixbufs();
             }
         }
         dialog.destroy();

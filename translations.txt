@@ -1,3 +1,6 @@
+Использование: 
+Usage: 
+
 Показывать все имена в теме, включая те, которые состоят только из симлинков (без физических оригиналов).
 Show all names in the topic, including those that consist solely of symlinks (without the actual original files).
 
@@ -1038,3 +1041,27 @@ Create
 
 Показать все
 Show all
+
+ФАЙЛ
+FILE
+
+КОНТЕКСТ
+CONTEXT
+
+ИМЯ
+NAME
+
+РАЗМЕР
+SIZE
+
+иконка
+icon
+
+/путь/к/
+/path/to/
+
+путь_к_теме
+path_to_theme
+
+Добавить
+Add
