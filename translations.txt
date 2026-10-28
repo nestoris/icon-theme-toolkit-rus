@@ -766,8 +766,8 @@ Problems
 Выберите каталог в списке выше
 Select a directory in the list above
 
-+ Добавить параметр
-+ Add parameter
+Добавить параметр
+Add parameter
 
 Сохранить изменения
 Save changes

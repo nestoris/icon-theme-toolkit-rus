@@ -2971,7 +2971,7 @@ class MainWindow {
         formBox.pack_start(this.paramsBox, false, false, 0);
         
         let paramActionsBox = new Gtk.Box({ orientation: Gtk.Orientation.HORIZONTAL, spacing: 5 });
-        this.addParamBtn = new Gtk.Button({ label: "+ Добавить параметр", sensitive: false, image: Gtk.Image.new_from_icon_name("list-add-symbolic", Gtk.IconSize.BUTTON), always_show_image: true });
+        this.addParamBtn = new Gtk.Button({ label: "Добавить параметр", sensitive: false, image: Gtk.Image.new_from_icon_name("list-add-symbolic", Gtk.IconSize.BUTTON), always_show_image: true });
         this.addMenu = new Gtk.Menu();
         this.stdKeys = ["Context", "Type", "Scale", "MinSize", "MaxSize", "Threshold"];
         paramActionsBox.pack_start(this.addParamBtn, true, true, 0);
