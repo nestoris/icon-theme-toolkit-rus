@@ -832,10 +832,754 @@ class MainWindow {
         this.notebook.append_page(editorTab, new Gtk.Label({ label: 'Редактор темы' }));
 
         // Вкладка 3: Инструменты
-        let toolsTab = new Gtk.Label({ label: "Здесь будут инструменты проверки..." });
+        let toolsTab = this.buildToolsTab();
         this.notebook.append_page(toolsTab, new Gtk.Label({ label: 'Инструменты' }));
 
         this.window.add(this.notebook);
+    }
+
+    async showSymlinkMatrixDialog(targetName, selectedNames) {
+        let targetOccs = this.theme.icons.get(targetName) || [];
+        let allSizes = new Set();
+        for (let o of targetOccs) if (o.size) allSizes.add(o.size);
+        
+        let nameContexts = {};
+        for (let sName of selectedNames) {
+            let occs = this.theme.icons.get(sName) || [];
+            let ctx = occs.length > 0 ? occs[0].context : '';
+            nameContexts[sName] = ctx;
+        }
+
+        let sortedSizes = Array.from(allSizes).sort((a,b) => a-b);
+
+        // ТЕПЕРЬ 5 КОЛОНОК НА КАЖДОЕ ИМЯ: Чекбокс, Превью, Текст, Активность, Скрытый путь
+        let colTypes = [GObject.TYPE_STRING, GObject.TYPE_INT];
+        for (let i = 0; i < selectedNames.length; i++) {
+            colTypes.push(GObject.TYPE_BOOLEAN);
+            colTypes.push(GdkPixbuf.Pixbuf);
+            colTypes.push(GObject.TYPE_STRING);
+            colTypes.push(GObject.TYPE_BOOLEAN);
+            colTypes.push(GObject.TYPE_STRING); // <-- Скрытый реальный путь
+        }
+
+        let store = new Gtk.ListStore();
+        store.set_column_types(colTypes);
+        let view = new Gtk.TreeView({ model: store, headers_clickable: false });
+
+        let rSize = new Gtk.CellRendererText();
+        let cSize = new Gtk.TreeViewColumn({ title: "Размер" });
+        cSize.pack_start(rSize, false); cSize.add_attribute(rSize, 'text', 0);
+        cSize.set_resizable(true); cSize.set_min_width(60);
+        view.append_column(cSize);
+
+        for (let i = 0; i < selectedNames.length; i++) {
+            let sName = selectedNames[i];
+            let chkIdx = 2 + i * 5;
+            let pixIdx = 3 + i * 5;
+            let txtIdx = 4 + i * 5;
+            let actIdx = 5 + i * 5;
+            let pathIdx = 6 + i * 5;
+
+            let c = new Gtk.TreeViewColumn({ title: sName, expand: true });
+            c.set_resizable(true); c.set_min_width(120);
+            
+            let rChk = new Gtk.CellRendererToggle();
+            rChk.connect('toggled', (w, path) => {
+                let [ok, iter] = store.get_iter_from_string(path);
+                if (ok) store.set_value(iter, chkIdx, !store.get_value(iter, chkIdx));
+            });
+            c.pack_start(rChk, false);
+            c.add_attribute(rChk, 'active', chkIdx);
+            c.add_attribute(rChk, 'activatable', actIdx);
+
+            let rPix = new Gtk.CellRendererPixbuf();
+            rPix.set_property('xpad', 4);
+            c.pack_start(rPix, false);
+            c.add_attribute(rPix, 'pixbuf', pixIdx);
+
+            let rTxt = new Gtk.CellRendererText({ editable: true });
+            rTxt.set_property('ellipsize', 3);
+            c.pack_start(rTxt, true);
+            c.add_attribute(rTxt, 'text', txtIdx);
+            
+            rTxt.connect('edited', (w, path, newText) => {
+                let [ok, iter] = store.get_iter_from_string(path);
+                if (ok) {
+                    store.set_value(iter, txtIdx, newText);
+                    store.set_value(iter, pathIdx, newText); // Сохраняем отредактированный текст как путь
+                }
+            });
+            
+            view.append_column(c);
+        }
+
+        for (let sz of sortedSizes) {
+            let targetOcc = targetOccs.find(o => Number(o.size) === sz && !o.isSymlink);
+            if (!targetOcc) continue; 
+
+            let rowData = [sz.toString(), sz];
+            let targetPreview = pixbufFromFileCached(targetOcc.fullPath, 24) || getTransparentPixbuf();
+            
+            for (let i = 0; i < selectedNames.length; i++) {
+                let sName = selectedNames[i];
+                let sCtx = nameContexts[sName];
+                
+                let hasDir = false;
+                for (let [dirName, info] of this.theme.dirInfo) {
+                    if (info.context === sCtx && Number(info.size) === sz) { hasDir = true; break; }
+                }
+
+                if (!hasDir) {
+                    rowData.push(false, targetPreview, "", false, "");
+                    continue;
+                }
+
+                let sOccs = this.theme.icons.get(sName) || [];
+                let existingLink = sOccs.find(o => Number(o.size) === sz && o.isSymlink);
+                let existingReal = sOccs.find(o => Number(o.size) === sz && !o.isSymlink);
+
+                if (existingReal) {
+                    let realPreview = pixbufFromFileCached(existingReal.fullPath, 24) || getTransparentPixbuf();
+                    rowData.push(false, realPreview, "Файл (занято)", false, existingReal.fullPath);
+                } else if (existingLink) {
+                    let isChain = false;
+                    try {
+                        let absPath = GLib.canonicalize_filename(existingLink.target, GLib.build_filenamev([this.theme.themeDir, existingLink.dirName]));
+                        let info = Gio.File.new_for_path(absPath).query_info('standard::is-symlink', Gio.FileQueryInfoFlags.NOFOLLOW_SYMLINKS, null);
+                        if (info.get_is_symlink()) isChain = true;
+                    } catch(e) {}
+                    
+                    let displayTarget = existingLink.target + (isChain ? " (цепочка)" : "");
+                    // Сохраняем чистый путь без пометки (цепочка)
+                    rowData.push(true, targetPreview, displayTarget, true, existingLink.target);
+                } else {
+                    let relPath = this.getRelativeTargetPath(sCtx, sz, targetName);
+                    rowData.push(false, targetPreview, relPath, true, relPath);
+                }
+            }
+            let iter = store.append();
+            let idx = []; for (let k = 0; k < rowData.length; k++) idx.push(k);
+            store.set(iter, idx, rowData);
+        }
+
+        let dialog = new Gtk.Dialog({ title: "Матрица симлинков", transient_for: this.window, modal: true, default_width: 850, default_height: 500 });
+        
+        let actionArea = dialog.get_action_area();
+        let btnApply = new Gtk.Button({ label: "Применить", image: Gtk.Image.new_from_icon_name("document-save-as-symbolic", Gtk.IconSize.BUTTON), always_show_image: true });
+        actionArea.pack_start(btnApply, false, false, 0);
+
+        let btnCancel = dialog.add_button("Отмена", Gtk.ResponseType.CANCEL);
+        btnCancel.set_image(Gtk.Image.new_from_icon_name("process-stop-symbolic", Gtk.IconSize.BUTTON));
+        btnCancel.set_always_show_image(true);
+
+        let btnSave = dialog.add_button("Сохранить", Gtk.ResponseType.OK);
+        btnSave.set_image(Gtk.Image.new_from_icon_name("document-save-symbolic", Gtk.IconSize.BUTTON));
+        btnSave.set_always_show_image(true);
+        btnSave.get_style_context().add_class("suggested-action");
+
+        let content = dialog.get_content_area();
+        content.set_spacing(5);
+        content.set_margin_start(10); content.set_margin_end(10); content.set_margin_top(10); content.set_margin_bottom(10);
+        
+        content.pack_start(new Gtk.Label({ label: `<b>Управление симлинками на "${targetName}"</b>`, use_markup: true, halign: Gtk.Align.START }), false, false, 0);
+
+        let topControls = new Gtk.Box({ orientation: Gtk.Orientation.HORIZONTAL, spacing: 10 });
+        let chkOverride = new Gtk.CheckButton({ label: "Перезаписывать файлы" });
+        topControls.pack_start(chkOverride, false, false, 0);
+
+        let btnSelectAll = new Gtk.Button({ label: "Выбрать все", image: Gtk.Image.new_from_icon_name("checkbox-checked-symbolic", Gtk.IconSize.BUTTON), always_show_image: true });
+        topControls.pack_start(btnSelectAll, false, false, 0);
+        content.pack_start(topControls, false, false, 0);
+
+        btnSelectAll.connect('clicked', () => {
+            let count = store.iter_n_children(null);
+            for (let i = 0; i < count; i++) {
+                let [ok, iter] = store.get_iter_from_string(i.toString());
+                if (!ok) continue;
+                for (let j = 0; j < selectedNames.length; j++) {
+                    let actIdx = 5 + j * 5;
+                    let chkIdx = 2 + j * 5;
+                    if (store.get_value(iter, actIdx)) store.set_value(iter, chkIdx, true);
+                }
+            }
+        });
+
+        let scroll = new Gtk.ScrolledWindow({ vexpand: true });
+        scroll.add(view);
+        content.pack_start(scroll, true, true, 0);
+        
+        chkOverride.connect('toggled', () => {
+            let isActive = chkOverride.get_active();
+            let count = store.iter_n_children(null);
+            for (let i = 0; i < count; i++) {
+                let [ok, iter] = store.get_iter_from_string(i.toString());
+                if (!ok) continue;
+                for (let j = 0; j < selectedNames.length; j++) {
+                    let actIdx = 5 + j * 5;
+                    let chkIdx = 2 + j * 5;
+                    let txtIdx = 4 + j * 5;
+                    let txt = store.get_value(iter, txtIdx);
+                    
+                    if (txt === "Файл (занято)" || txt === "Будет перезаписан") {
+                        if (isActive) {
+                            store.set_value(iter, actIdx, true);
+                            store.set_value(iter, txtIdx, "Будет перезаписан");
+                        } else {
+                            store.set_value(iter, actIdx, false);
+                            store.set_value(iter, chkIdx, false);
+                            store.set_value(iter, txtIdx, "Файл (занято)");
+                        }
+                    }
+                }
+            }
+        });
+
+        btnApply.connect('clicked', async () => {
+            let changes = await this.applyMatrixChanges(store, selectedNames, nameContexts, targetName);
+            if (changes) {
+                this.updateThemeMemory(changes.toCreate, changes.toDelete);
+                dialog.destroy();
+                this.populateToolsMasterStore(() => {
+                    this.selectToolsName(targetName);
+                    this.rebuildComparisonAsync(null);
+                    this.showSymlinkMatrixDialog(targetName, selectedNames);
+                });
+            }
+        });
+
+        dialog.connect('response', async (dlg, response) => {
+            if (response === Gtk.ResponseType.OK) {
+                dialog.hide();
+                let changes = await this.applyMatrixChanges(store, selectedNames, nameContexts, targetName);
+                if (changes) {
+                    this.updateThemeMemory(changes.toCreate, changes.toDelete);
+                    dialog.destroy();
+                    this.populateToolsMasterStore(() => {
+                        this.selectToolsName(targetName);
+                        this.rebuildComparisonAsync(null);
+                    });
+                } else {
+                    dialog.show();
+                }
+            } else if (response === Gtk.ResponseType.CANCEL) {
+                dialog.destroy();
+            }
+        });
+
+        dialog.show_all();
+    }
+
+    showCreateSymlinksDialog() {
+        if (!this.toolsCurrentSelected) return;
+        let sourceName = this.toolsCurrentSelected;
+        
+        let dialog = new Gtk.Dialog({ 
+            title: `Симлинки/Оригиналы: ${sourceName}`, 
+            transient_for: this.window, modal: true, 
+            default_width: 900, default_height: 500 
+        });
+        
+        let btnCancel = dialog.add_button("Отмена", Gtk.ResponseType.CANCEL);
+        btnCancel.set_image(Gtk.Image.new_from_icon_name("process-stop-symbolic", Gtk.IconSize.BUTTON));
+        btnCancel.set_always_show_image(true);
+
+        let btnApply = dialog.add_button("Применить", Gtk.ResponseType.OK);
+        btnApply.set_image(Gtk.Image.new_from_icon_name("document-save-symbolic", Gtk.IconSize.BUTTON));
+        btnApply.set_always_show_image(true);
+        btnApply.get_style_context().add_class("suggested-action");
+
+        let content = dialog.get_content_area();
+        content.set_spacing(5);
+        content.set_margin_start(10); content.set_margin_end(10); content.set_margin_top(10); content.set_margin_bottom(10);
+
+        // --- Верхняя панель ---
+        let topBox = new Gtk.Box({ orientation: Gtk.Orientation.HORIZONTAL, spacing: 10 });
+        topBox.pack_start(new Gtk.Label({ label: `<b>${sourceName}</b>`, use_markup: true }), false, false, 0);
+        topBox.pack_start(new Gtk.Label({ label: "➔", use_markup: true }), false, false, 0);
+        
+        // Поле для шаблона пути (межконтекстные симлинки)
+        let pathEntry = new Gtk.Entry({ text: "../%Context%/%Size%/%Name%.png", tooltip_text: "Переменные: %Context%, %Size%, %Scale%, %Type%, %Name%" });
+        pathEntry.set_width_chars(25);
+        topBox.pack_start(pathEntry, false, false, 0);
+
+        // Классический ComboBox со скроллом
+        let targetStore = new Gtk.ListStore();
+        targetStore.set_column_types([GObject.TYPE_STRING]);
+        let targetCombo = new Gtk.ComboBox({ model: targetStore });
+        let renderer = new Gtk.CellRendererText();
+        targetCombo.pack_start(renderer, true);
+        targetCombo.add_attribute(renderer, 'text', 0);
+        targetCombo.set_hexpand(true);
+        topBox.pack_start(targetCombo, true, true, 0);
+        
+        let chkShowSymlinks = new Gtk.CheckButton({ label: "Показывать симлинки" });
+        topBox.pack_start(chkShowSymlinks, false, false, 0);
+        
+        content.pack_start(topBox, false, false, 0);
+
+        // --- Таблица ---
+        let store = new Gtk.ListStore();
+        // 0-Чекбокс, 1-ПревьюИсх, 2-КаталогИсх, 3-КонтекстИсх, 4-ПревьюЦели, 5-КаталогЦели, 6-КонтекстЦели, 7-Статус, 8-ИсхПуть, 9-ЦельПуть
+        store.set_column_types([
+            GObject.TYPE_BOOLEAN, GdkPixbuf.Pixbuf, GObject.TYPE_STRING, GObject.TYPE_STRING,
+            GdkPixbuf.Pixbuf, GObject.TYPE_STRING, GObject.TYPE_STRING, GObject.TYPE_STRING,
+            GObject.TYPE_STRING, GObject.TYPE_STRING
+        ]);
+
+        let view = new Gtk.TreeView({ model: store, headers_clickable: true });
+        
+        let cols = [
+            ["", 0, false], ["Исходный файл", 1, false], ["Каталог", 2, true], ["Контекст", 3, false],
+            ["Цель", 4, false], ["Каталог цели", 5, true], ["Контекст цели", 6, false], ["Действие", 7, true]
+        ];
+        
+        let rChk = null;
+        for (let [title, idx, expand] of cols) {
+            let r;
+            if (idx === 0) {
+                r = new Gtk.CellRendererToggle();
+                rChk = r; // Запоминаем рендерер для обработки кликов
+            } else if (idx === 1 || idx === 4) {
+                r = new Gtk.CellRendererPixbuf();
+            } else {
+                r = new Gtk.CellRendererText();
+                r.set_property('ellipsize', 3); // Только для текста
+            }
+            
+            let c = new Gtk.TreeViewColumn({ title: title, expand: expand });
+            c.pack_start(r, true);
+            c.add_attribute(r, (idx === 1 || idx === 4) ? 'pixbuf' : (idx === 0 ? 'active' : 'text'), idx);
+            c.set_resizable(true);
+            view.append_column(c);
+            c.set_clickable(true);
+        }
+        
+        rChk.connect('toggled', (w, path) => {
+            let [ok, iter] = store.get_iter_from_string(path);
+            if (ok) store.set_value(iter, 0, !store.get_value(iter, 0));
+        });
+
+        let scroll = new Gtk.ScrolledWindow({ vexpand: true });
+        scroll.add(view);
+        content.pack_start(scroll, true, true, 0);
+
+        // --- Логика обновления таблицы ---
+        let currentTargetName = "";
+
+        targetCombo.connect('changed', () => {
+            let [ok, iter] = targetCombo.get_active_iter();
+            if (ok && iter) {
+                currentTargetName = targetStore.get_value(iter, 0);
+                updateTable();
+            }
+        });
+
+        let updateTable = () => {
+            store.clear();
+            let showSymlinks = chkShowSymlinks.get_active();
+            let sourceOccs = this.theme.icons.get(sourceName) || [];
+            let targetOccs = currentTargetName ? (this.theme.icons.get(currentTargetName) || []) : [];
+            
+            let idx = 0;
+            let loadChunk = () => {
+                if (idx >= sourceOccs.length) return false;
+                let end = Math.min(idx + 50, sourceOccs.length);
+                
+                for (let i = idx; i < end; i++) {
+                    let sOcc = sourceOccs[i];
+                    let sPb = pixbufFromFileCached(sOcc.fullPath, 24) || getTransparentPixbuf();
+                    let actionText = sOcc.isSymlink ? "Оригинал (из копии)" : "Оригинал";
+                    
+                    let tPb = getTransparentPixbuf();
+                    let tDir = "", tCtx = "", tPath = "", tInfo = "";
+                    
+                    if (currentTargetName) {
+                        let match = targetOccs.find(o => o.size === sOcc.size && o.context === sOcc.context);
+                        if (match && (!match.isSymlink || showSymlinks)) {
+                            tPb = pixbufFromFileCached(match.fullPath, 24) || getTransparentPixbuf();
+                            tDir = match.dirName;
+                            tCtx = match.context || '';
+                            tPath = match.fullPath;
+                            
+                            // Подтягиваем параметры каталога цели для подсказки
+                            let dInfo = this.theme.dirInfo.get(match.dirName) || {};
+                            tInfo = `Size: ${dInfo.size || '?'}\nScale: ${dInfo.scale || '1'}\nType: ${dInfo.type || 'Fixed'}`;
+
+                            actionText = match.isSymlink ? "Симлинк (и материализовать цель)" : "Симлинк";
+                        }
+                    }
+                    
+                    let iter = store.append();
+                    store.set(iter, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], [
+                        false, sPb, sOcc.dirName, sOcc.context || '', 
+                        tPb, tDir, tCtx, actionText, sOcc.fullPath, tPath
+                    ]);
+                    
+                    // Добавляем подсказку для строки (через tooltip)
+                    if (tInfo) store.set(iter, [6], [tInfo]); // Используем 6-ю колонку для текста подсказки
+                }
+                idx = end;
+                GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, loadChunk);
+                return false;
+            };
+            GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, loadChunk);
+        };
+
+        // Заполняем комбобокс (без рекурсии)
+        let populateCombo = () => {
+            targetStore.clear();
+            let showSymlinks = chkShowSymlinks.get_active();
+            let firstIter = null;
+            
+            let names = [];
+            for (let [name, occs] of this.theme.icons) {
+                if (name === sourceName) continue;
+                let hasOriginal = occs.some(o => !o.isSymlink);
+                if (hasOriginal || showSymlinks) {
+                    names.push(name);
+                }
+            }
+            names.sort();
+            
+            for (let n of names) {
+                let it = targetStore.append();
+                targetStore.set(it, [0], [n]);
+                if (!firstIter) firstIter = it;
+            }
+            
+            if (firstIter) {
+                targetCombo.set_active_iter(firstIter);
+            }
+        };
+
+        populateCombo();
+        chkShowSymlinks.connect('toggled', () => {
+            populateCombo();
+        });
+        
+        dialog.show_all();
+
+        if (dialog.run() === Gtk.ResponseType.OK) {
+            let count = store.iter_n_children(null);
+            let toConvert = []; // Симлинки, которые станут оригиналами
+            let toLink = [];    // Новые симлинки
+
+            for (let i = 0; i < count; i++) {
+                let [ok, iter] = store.get_iter_from_string(i.toString());
+                if (!ok || !store.get_value(iter, 0)) continue;
+                
+                let status = store.get_value(iter, 7);
+                let srcPath = store.get_value(iter, 8);
+                let tgtPath = store.get_value(iter, 9);
+                
+                if (status === "Оригинал (из копии)") {
+                    toConvert.push({ path: srcPath });
+                } else if (status === "Симлинк" || status === "Симлинк (и материализовать цель)") {
+                    // Если есть точная цель в другом контексте - используем ее путь.
+                    // Если пути нет, используем шаблон, подставляя Size из исходного файла.
+                    let finalTarget = tgtPath;
+                    if (!finalTarget) {
+                        let srcInfo = this.theme.dirInfo.get(GLib.path_get_dirname(srcPath).substring(this.theme.themeDir.length + 1)) || {};
+                        let template = pathEntry.get_text();
+                        finalTarget = template
+                            .replace(/%Size%/g, srcInfo.size || '')
+                            .replace(/%Scale%/g, srcInfo.scale || '1')
+                            .replace(/%Type%/g, srcInfo.type || 'Fixed')
+                            .replace(/%Context%/g, srcInfo.context || '')
+                            .replace(/%Name%/g, currentTargetName);
+                    }
+                    toLink.push({ source: srcPath, target: finalTarget });
+                    
+                    if (status === "Симлинк (и материализовать цель)" && tgtPath) {
+                        toConvert.push({ path: tgtPath });
+                    }
+                }
+            }
+
+            dialog.destroy();
+            
+            if (toConvert.length > 0 || toLink.length > 0) {
+                let confirmText = "";
+                if (toConvert.length > 0) confirmText += `Будет материализовано оригиналов: ${toConvert.length}\n`;
+                if (toLink.length > 0) confirmText += `Будет создано симлинков: ${toLink.length}\n`;
+                confirmText += "\nПродолжить?";
+                
+                let confirmDlg = new Gtk.MessageDialog({ transient_for: this.window, modal: true, message_type: Gtk.MessageType.QUESTION, buttons: Gtk.ButtonsType.YES_NO, text: confirmText });
+                
+                if (confirmDlg.run() === Gtk.ResponseType.YES) {
+                    let errors = 0;
+                    
+                    // 1. Материализация (превращение симлинка в копию файла)
+                    for (let item of toConvert) {
+                        try {
+                            let symlinkFile = Gio.File.new_for_path(item.path);
+                            let targetInfo = symlinkFile.query_info('standard::symlink-target', Gio.FileQueryInfoFlags.NONE, null);
+                            let target = targetInfo.get_symlink_target();
+                            let resolved = Gio.File.new_for_path(item.path).get_parent().resolve_relative_path(target);
+                            
+                            if (resolved.query_exists(null)) {
+                                resolved.copy(symlinkFile, Gio.FileCopyFlags.OVERWRITE, null, null);
+                            }
+                        } catch (e) { errors++; print("Ошибка конвертации: " + item.path); }
+                    }
+                    
+                    // 2. Создание симлинков
+                    for (let item of toLink) {
+                        try {
+                            let src = Gio.File.new_for_path(item.source);
+                            let tgt = Gio.File.new_for_path(item.target);
+                            if (src.query_exists(null)) src.delete(null);
+                            
+                            let relPath = src.get_parent().get_relative_path(tgt).get_path();
+                            src.make_symbolic_link(relPath, null);
+                        } catch (e) { errors++; print("Ошибка создания симлинка: " + item.source); }
+                    }
+                    
+                    if (errors > 0) {
+                        let errDlg = new Gtk.MessageDialog({ transient_for: this.window, modal: true, message_type: Gtk.MessageType.ERROR, buttons: Gtk.ButtonsType.OK, text: `Завершено с ошибками: ${errors}` });
+                        errDlg.run(); errDlg.destroy();
+                    }
+                    
+                    this.loadThemeData(this.theme.themePath, true);
+                }
+                confirmDlg.destroy();
+            }
+        } else {
+            dialog.destroy();
+        }
+    }
+
+    async applyMatrixChanges(store, selectedNames, nameContexts, targetName) {
+        let toCreate = [];
+        let toDelete = [];
+        let count = store.iter_n_children(null);
+
+        for (let i = 0; i < count; i++) {
+            let [ok, iter] = store.get_iter_from_string(i.toString());
+            if (!ok) continue;
+            let sz = store.get_value(iter, 1);
+
+            for (let j = 0; j < selectedNames.length; j++) {
+                let sName = selectedNames[j];
+                let chkIdx = 2 + j * 5;
+                let actIdx = 5 + j * 5;
+                let pathIdx = 6 + j * 5; // <--- Берем путь из скрытой колонки
+
+                if (!store.get_value(iter, actIdx)) continue;
+
+                let isChecked = store.get_value(iter, chkIdx);
+                let targetValue = store.get_value(iter, pathIdx); // <--- Чистый путь, без "Будет перезаписан"
+                
+                let sCtx = nameContexts[sName];
+                let sOccs = this.theme.icons.get(sName) || [];
+                let existingLink = sOccs.find(o => Number(o.size) === sz && o.isSymlink);
+                let existingReal = sOccs.find(o => Number(o.size) === sz && !o.isSymlink);
+
+                if (isChecked && existingReal) {
+                    toDelete.push({ path: existingReal.fullPath });
+                    let dirName = this.getDirNameByContextAndSize(sCtx, sz);
+                    if (dirName) {
+                        let absPath = GLib.build_filenamev([this.theme.themeDir, dirName, sName + '.png']);
+                        toCreate.push({ path: absPath, target: targetValue });
+                    }
+                } else if (isChecked && existingLink) {
+                    if (existingLink.target !== targetValue) {
+                        toDelete.push({ path: existingLink.fullPath });
+                        toCreate.push({ path: existingLink.fullPath, target: targetValue });
+                    }
+                } else if (isChecked && !existingLink && !existingReal) {
+                    let dirName = this.getDirNameByContextAndSize(sCtx, sz);
+                    if (dirName) {
+                        let absPath = GLib.build_filenamev([this.theme.themeDir, dirName, sName + '.png']);
+                        toCreate.push({ path: absPath, target: targetValue });
+                    }
+                } else if (!isChecked && existingLink) {
+                    toDelete.push({ path: existingLink.fullPath });
+                }
+            }
+        }
+
+        if (toCreate.length === 0 && toDelete.length === 0) return null;
+
+        let confirmDlg = new Gtk.MessageDialog({ transient_for: this.window, modal: true, message_type: Gtk.MessageType.QUESTION, buttons: Gtk.ButtonsType.YES_NO, text: `Будет создано симлинков: ${toCreate.length}\nБудет удалено файлов/симлинков: ${toDelete.length}\n\nПродолжить?` });
+        if (confirmDlg.run() !== Gtk.ResponseType.YES) {
+            confirmDlg.destroy();
+            return null;
+        }
+        confirmDlg.destroy();
+
+        let total = toDelete.length + toCreate.length;
+        let current = 0;
+        let errors = 0;
+        const progress = new ProgressDialog(this.window, "Сохранение изменений", "Обновление файлов...");
+
+        for (let item of toDelete) {
+            if (progress.isCancelled()) break;
+            progress.setStatus(current / total, "Удаление: " + GLib.path_get_basename(item.path));
+            try { Gio.File.new_for_path(item.path).delete(null); } catch (e) { errors++; }
+            current++;
+            await new Promise(r => GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => { r(); return false; }));
+        }
+
+        for (let item of toCreate) {
+            if (progress.isCancelled()) break;
+            progress.setStatus(current / total, "Создание: " + GLib.path_get_basename(item.path));
+            try {
+                let f = Gio.File.new_for_path(item.path);
+                if (f.query_exists(null)) f.delete(null);
+                f.make_symbolic_link(item.target, null);
+            } catch (e) { errors++; }
+            current++;
+            await new Promise(r => GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => { r(); return false; }));
+        }
+
+        progress.close();
+
+        if (errors > 0) {
+            let errDlg = new Gtk.MessageDialog({ transient_for: this.window, modal: true, message_type: Gtk.MessageType.ERROR, buttons: Gtk.ButtonsType.OK, text: `Завершено с ошибками: ${errors}` });
+            errDlg.run(); errDlg.destroy();
+        }
+        return { toCreate, toDelete };
+    }
+
+    showDeleteFilesDialog() {
+        if (!this.toolsCurrentSelected) return;
+        let name = this.toolsCurrentSelected;
+        let occs = this.theme.icons.get(name) || [];
+        
+        let dialog = new Gtk.Dialog({ 
+            title: "Удалить файлы", transient_for: this.window, modal: true, 
+            default_width: 800, default_height: 450 
+        });
+        
+        let btnCancel = dialog.add_button("Отмена", Gtk.ResponseType.CANCEL);
+        btnCancel.set_image(Gtk.Image.new_from_icon_name("process-stop-symbolic", Gtk.IconSize.BUTTON));
+        btnCancel.set_always_show_image(true);
+
+        let btnDel = dialog.add_button("Удалить выбранное", Gtk.ResponseType.OK);
+        btnDel.set_image(Gtk.Image.new_from_icon_name("edit-delete-symbolic", Gtk.IconSize.BUTTON));
+        btnDel.set_always_show_image(true);
+        btnDel.get_style_context().add_class("destructive-action");
+
+        let content = dialog.get_content_area();
+        content.set_spacing(5);
+        content.set_margin_start(10); content.set_margin_end(10);
+        content.set_margin_top(10); content.set_margin_bottom(10);
+
+        content.pack_start(new Gtk.Label({ label: `<b>Файлы для имени: ${name}</b>`, use_markup: true, halign: Gtk.Align.START }), false, false, 0);
+
+        let store = new Gtk.ListStore();
+        // 0-Чекбокс, 1-Превью, 2-Контекст, 3-Каталог, 4-Размер, 5-Статус, 6-Цель, 7-ПолныйПуть
+        store.set_column_types([
+            GObject.TYPE_BOOLEAN, GdkPixbuf.Pixbuf, GObject.TYPE_STRING, 
+            GObject.TYPE_STRING, GObject.TYPE_INT, GObject.TYPE_STRING, 
+            GObject.TYPE_STRING, GObject.TYPE_STRING
+        ]);
+        
+        for (let o of occs) {
+            let pb = pixbufFromFileCached(o.fullPath, 24) || getTransparentPixbuf();
+            let status = o.isSymlink ? "симлинк" : "файл";
+            let target = o.target || "";
+            let size = o.size || 0;
+            
+            let iter = store.append();
+            store.set(iter, [0, 1, 2, 3, 4, 5, 6, 7], [
+                false, pb, o.context || '', o.dirName, size, status, target, o.fullPath
+            ]);
+        }
+
+        let view = new Gtk.TreeView({ model: store, headers_clickable: true });
+        view.get_selection().set_mode(Gtk.SelectionMode.MULTIPLE); // Множественное выделение
+        
+        // Чекбокс
+        let rChk = new Gtk.CellRendererToggle();
+        rChk.connect('toggled', (w, path) => {
+            let [ok, iter] = store.get_iter_from_string(path);
+            if (ok) store.set_value(iter, 0, !store.get_value(iter, 0));
+        });
+        let cChk = new Gtk.TreeViewColumn({ title: "" }); cChk.pack_start(rChk, false); cChk.add_attribute(rChk, 'active', 0);
+        view.append_column(cChk);
+
+        // Колонки с сортировкой
+        let cols = [
+            ["Превью", 1, false, false],
+            ["Контекст", 2, false, false],
+            ["Каталог", 3, true, false],
+            ["Размер", 4, false, true],
+            ["Статус", 5, false, false],
+            ["Цель", 6, true, false]
+        ];
+
+        for (let [title, idx, expand, isInt] of cols) {
+            let r = (idx === 1) ? new Gtk.CellRendererPixbuf() : new Gtk.CellRendererText();
+            if (idx === 6 || idx === 3) r.set_property('ellipsize', 3);
+            let c = new Gtk.TreeViewColumn({ title: title, expand: expand });
+            c.pack_start(r, true);
+            c.add_attribute(r, idx === 1 ? 'pixbuf' : 'text', idx);
+            c.set_sort_column_id(idx);
+            c.set_resizable(true);
+            view.append_column(c);
+        }
+
+        // Обработка нажатия Пробела для переключения чекбоксов
+        view.connect('key-press-event', (w, event) => {
+            let keyval = event.get_keyval()[1];
+            if (keyval === 32) { // Пробел
+                let selection = view.get_selection();
+                let [rows, model] = selection.get_selected_rows();
+                if (rows.length === 0) return false;
+
+                // Проверяем, есть ли хоть одна неотмеченная строка среди выделенных
+                let anyUnchecked = false;
+                for (let path of rows) {
+                    let [ok, iter] = model.get_iter(path);
+                    if (ok && !model.get_value(iter, 0)) {
+                        anyUnchecked = true;
+                        break;
+                    }
+                }
+                
+                // Если есть хоть одна неотмеченная — отмечаем все, иначе снимаем все
+                for (let path of rows) {
+                    let [ok, iter] = model.get_iter(path);
+                    if (ok) model.set_value(iter, 0, anyUnchecked);
+                }
+                return true;
+            }
+            return false;
+        });
+
+        let scroll = new Gtk.ScrolledWindow({ vexpand: true }); scroll.add(view);
+        content.pack_start(scroll, true, true, 0);
+        
+        dialog.show_all();
+        if (dialog.run() === Gtk.ResponseType.OK) {
+            let count = store.iter_n_children(null);
+            let toDelete = [];
+            
+            for (let i = 0; i < count; i++) {
+                let [ok, iter] = store.get_iter_from_string(i.toString());
+                if (ok && store.get_value(iter, 0)) {
+                    let path = store.get_value(iter, 7);
+                    try {
+                        Gio.File.new_for_path(path).delete(null);
+                        toDelete.push({ path: path });
+                    } catch (e) { print("Ошибка удаления " + path + ": " + e.message); }
+                }
+            }
+            dialog.destroy();
+            
+            if (toDelete.length > 0) {
+                // Обновляем память и перерисовываем только вкладку инструментов
+                this.updateThemeMemory([], toDelete);
+                this.populateToolsMasterStore(() => {
+                    this.selectToolsName(name); // Возвращаем курсор на имя
+                    this.rebuildComparisonAsync(null); // Обновляем сравнение в фоне
+                });
+            }
+        } else {
+            dialog.destroy();
+        }
     }
 
     // =====================================================================
@@ -1074,6 +1818,269 @@ class MainWindow {
         paned.pack2(rightBox, true, false);
 
         mainBox.pack_start(paned, true, true, 0);
+        return mainBox;
+    }
+
+    buildToolsTab() {
+        this.toolsCurrentSelected = null;
+        
+        let mainBox = new Gtk.Box({ orientation: Gtk.Orientation.VERTICAL, spacing: 5, margin: 5 });
+        let paned = new Gtk.Paned({ orientation: Gtk.Orientation.HORIZONTAL, wide_handle: true });
+        paned.set_position(600);
+
+        // ================= ЛЕВАЯ ПАНЕЛЬ: Оригиналы и смешанные =================
+        let leftBox = new Gtk.Box({ orientation: Gtk.Orientation.VERTICAL, spacing: 5 });
+        
+        let filterBox = new Gtk.Box({ orientation: Gtk.Orientation.HORIZONTAL, spacing: 5 });
+        filterBox.pack_start(new Gtk.Label({ label: "Фильтр:" }), false, false, 0);
+        this.toolsFilterEntry = new Gtk.Entry({ placeholder_text: "Поиск по имени...", hexpand: true });
+        this.toolsFilterEntry.connect('changed', () => {
+            if (this.toolsFilterModel) this.toolsFilterModel.refilter();
+        });
+        filterBox.pack_start(this.toolsFilterEntry, true, true, 0);
+        leftBox.pack_start(filterBox, false, false, 0);
+
+        // Модель левой панели: [0-Превью, 1-Имя, 2-Контекст, 3-Кол-во симлинков, 4-Статус, 5-Цвет, 6-Имя(поиск)]
+        this.toolsMasterStore = new Gtk.ListStore();
+        this.toolsMasterStore.set_column_types([
+            GdkPixbuf.Pixbuf, GObject.TYPE_STRING, GObject.TYPE_STRING, 
+            GObject.TYPE_INT, GObject.TYPE_STRING, GObject.TYPE_STRING, GObject.TYPE_STRING
+        ]);
+
+        this.toolsFilterModel = new Gtk.TreeModelFilter({ child_model: this.toolsMasterStore });
+        this.toolsFilterModel.set_visible_func((model, iter) => {
+            let text = this.toolsFilterEntry.get_text().toLowerCase();
+            if (text && model.get_value(iter, 6).indexOf(text) < 0) return false;
+            return true;
+        });
+
+        this.toolsSortModel = new Gtk.TreeModelSort({ model: this.toolsFilterModel });
+        this.toolsSortModel.set_sort_column_id(1, Gtk.SortType.ASCENDING);
+
+        this.toolsLeftView = new Gtk.TreeView({ model: this.toolsSortModel, headers_clickable: true });
+        
+        let tCols = [
+            ["", 0, false], // Убрали заголовок "Превью"
+            ["Имя", 1, true], 
+            ["Контекст", 2, false], 
+            ["Симлинков", 3, false], 
+            ["Статус", 4, false]
+        ];
+        for (let [title, idx, expand] of tCols) {
+            let r = (idx === 0) ? new Gtk.CellRendererPixbuf() : new Gtk.CellRendererText();
+            if (idx === 4) r.set_property('foreground', 5); // Для статуса используем цвет
+            
+            let c = new Gtk.TreeViewColumn({ title: title });
+            c.pack_start(r, false);
+            c.add_attribute(r, idx === 0 ? 'pixbuf' : 'text', idx);
+            c.set_sort_column_id(idx);
+            c.set_resizable(true);
+            
+            if (idx === 1) {
+                c.set_expand(true);
+                c.set_fixed_width(240); // Изначальная ширина не более 240px
+            }
+            
+            this.toolsLeftView.append_column(c);
+        }
+
+        this.toolsLeftView.connect('cursor-changed', () => {
+            if (this.isUpdatingTools) return; // Игнорируем во время заполнения
+            let [ok, model, iter] = this.toolsLeftView.get_selection().get_selected();
+            if (ok && iter) {
+                let name = model.get_value(iter, 1);
+                this.toolsCurrentSelected = name;
+                this.populateToolsRightPanel(name);
+            }
+        });
+
+        let scrollLeft = new Gtk.ScrolledWindow({ vexpand: true });
+        scrollLeft.add(this.toolsLeftView);
+        leftBox.pack_start(scrollLeft, true, true, 0);
+
+        // Панель инструментов (только иконки)
+        let toolbar = new Gtk.Box({ orientation: Gtk.Orientation.HORIZONTAL, spacing: 5 });
+        
+        let btnDel = new Gtk.Button({ image: Gtk.Image.new_from_icon_name("edit-delete-symbolic", Gtk.IconSize.BUTTON), tooltip_text: "Удалить часть файлов" });
+        btnDel.connect('clicked', () => this.showDeleteFilesDialog());
+        toolbar.pack_start(btnDel, false, false, 0);
+
+        let btnMove = new Gtk.Button({ image: Gtk.Image.new_from_icon_name("edit-copy-symbolic", Gtk.IconSize.BUTTON), tooltip_text: "Переместить/Копировать/Переименовать" });
+        btnMove.connect('clicked', () => this.showMoveCopyDialog());
+        toolbar.pack_start(btnMove, false, false, 0);
+
+        let btnLink = new Gtk.Button({ 
+            image: Gtk.Image.new_from_icon_name("insert-link-symbolic", Gtk.IconSize.BUTTON), 
+            tooltip_text: "Сделать симлинком / Оригиналом" 
+        });
+        btnLink.connect('clicked', () => this.showCreateSymlinksDialog());
+        toolbar.pack_start(btnLink, false, false, 0);
+
+        leftBox.pack_start(toolbar, false, false, 0);
+        paned.pack1(leftBox, true, false);
+
+        // ================= ПРАВАЯ ПАНЕЛЬ =================
+        let rightPaned = new Gtk.Paned({ orientation: Gtk.Orientation.VERTICAL, wide_handle: true });
+        
+        // --- ВЕРХНЯЯ ЧАСТЬ: Файлы выбранного значка ---
+        let rightTopBox = new Gtk.Box({ orientation: Gtk.Orientation.VERTICAL, spacing: 5, margin: 4 });
+        rightTopBox.pack_start(new Gtk.Label({ label: "<b>Файлы выбранного имени</b>", use_markup: true, halign: Gtk.Align.START }), false, false, 0);
+
+        this.toolsRightFilesStore = new Gtk.ListStore();
+        this.toolsRightFilesStore.set_column_types([
+            GdkPixbuf.Pixbuf, GObject.TYPE_STRING, GObject.TYPE_STRING, GObject.TYPE_INT, GObject.TYPE_STRING, GObject.TYPE_STRING
+        ]);
+        // 0-Превью, 1-Каталог, 2-Контекст, 3-Размер, 4-Тип, 5-Цель
+
+        let viewRightFiles = new Gtk.TreeView({ model: this.toolsRightFilesStore, headers_clickable: true });
+        
+        let rfCols = [
+            ["", 0, false], ["Каталог", 1, true], ["Контекст", 2, false], 
+            ["Размер", 3, false], ["Тип", 4, false], ["Цель", 5, true]
+        ];
+        for (let [title, idx, expand] of rfCols) {
+            let r = (idx === 0) ? new Gtk.CellRendererPixbuf() : new Gtk.CellRendererText();
+            if (idx > 0) r.set_property('ellipsize', 3);
+            let c = new Gtk.TreeViewColumn({ title: title, expand: expand });
+            c.pack_start(r, true);
+            c.add_attribute(r, idx === 0 ? 'pixbuf' : 'text', idx);
+            c.set_sort_column_id(idx);
+            c.set_resizable(true);
+            viewRightFiles.append_column(c);
+        }
+        
+        let scrollRightFiles = new Gtk.ScrolledWindow({ vexpand: true });
+        scrollRightFiles.add(viewRightFiles);
+        rightTopBox.pack_start(scrollRightFiles, true, true, 0);
+        rightPaned.pack1(rightTopBox, true, false);
+
+        // --- НИЖНЯЯ ЧАСТЬ: Notebook со ссылками ---
+        let rightBottomBox = new Gtk.Box({ orientation: Gtk.Orientation.VERTICAL, spacing: 5, margin: 4 });
+        rightBottomBox.pack_start(new Gtk.Label({ label: "<b>Симлинки на выбранное имя</b>", use_markup: true, halign: Gtk.Align.START }), false, false, 0);
+
+        let rightNotebook = new Gtk.Notebook();
+        
+        // Вкладка 1: Списком
+        let tabList = new Gtk.Box({ orientation: Gtk.Orientation.VERTICAL, spacing: 5, margin: 4 });
+        this.toolsRightStore = new Gtk.ListStore();
+        this.toolsRightStore.set_column_types([GdkPixbuf.Pixbuf, GObject.TYPE_STRING, GObject.TYPE_STRING, GObject.TYPE_STRING]);
+        
+        let viewList = new Gtk.TreeView({ model: this.toolsRightStore, headers_clickable: true });
+        let rCols1 = [["", 0, false], ["Имя симлинка", 1, true], ["Адрес", 2, true], ["Контекст", 3, false]];
+        for (let [title, idx, expand] of rCols1) {
+            let r = (idx === 0) ? new Gtk.CellRendererPixbuf() : new Gtk.CellRendererText();
+            if (idx > 0) r.set_property('ellipsize', 3);
+            let c = new Gtk.TreeViewColumn({ title: title, expand: expand });
+            c.pack_start(r, true);
+            c.add_attribute(r, idx === 0 ? 'pixbuf' : 'text', idx);
+            c.set_resizable(true);
+            viewList.append_column(c);
+        }
+        let scrollList = new Gtk.ScrolledWindow({ vexpand: true });
+        scrollList.add(viewList);
+        tabList.pack_start(scrollList, true, true, 0);
+        rightNotebook.append_page(tabList, new Gtk.Label({ label: "Списком" }));
+
+        // Вкладка 2: Поимённо
+        let tabByName = new Gtk.Paned({ orientation: Gtk.Orientation.VERTICAL, wide_handle: true });
+        
+        let topBox = new Gtk.Box({ orientation: Gtk.Orientation.VERTICAL, spacing: 5, margin: 4 });
+        this.toolsRightTopStore = new Gtk.ListStore();
+        this.toolsRightTopStore.set_column_types([GdkPixbuf.Pixbuf, GObject.TYPE_STRING, GObject.TYPE_STRING, GObject.TYPE_INT]);
+        
+        let viewTop = new Gtk.TreeView({ model: this.toolsRightTopStore, headers_clickable: true });
+        viewTop.get_selection().set_mode(Gtk.SelectionMode.MULTIPLE);
+        let rColsTop = [["", 0, false], ["Имя", 1, true], ["Контекст", 2, false], ["Кол-во", 3, false]];
+        for (let [title, idx, expand] of rColsTop) {
+            let r = (idx === 0) ? new Gtk.CellRendererPixbuf() : new Gtk.CellRendererText();
+            let c = new Gtk.TreeViewColumn({ title: title, expand: expand });
+            c.pack_start(r, true);
+            c.add_attribute(r, idx === 0 ? 'pixbuf' : 'text', idx);
+            c.set_sort_column_id(idx);
+            c.set_resizable(true);
+            viewTop.append_column(c);
+        }
+        let scrollTop = new Gtk.ScrolledWindow({ vexpand: true });
+        scrollTop.add(viewTop);
+        topBox.pack_start(scrollTop, true, true, 0);
+        let syncBox = new Gtk.Box({ orientation: Gtk.Orientation.HORIZONTAL, spacing: 5, margin_top: 5 });
+        let btnSync = new Gtk.Button({
+            label: "Матрица симлинков", 
+            image: Gtk.Image.new_from_icon_name("emblem-synchronizing-symbolic", Gtk.IconSize.BUTTON), 
+            always_show_image: true 
+        });
+        btnSync.connect('clicked', () => {
+            let [rows, model] = viewTop.get_selection().get_selected_rows();
+            if (rows.length === 0) {
+                let msg = new Gtk.MessageDialog({ transient_for: this.window, modal: true, message_type: Gtk.MessageType.WARNING, buttons: Gtk.ButtonsType.OK, text: "Выберите хотя бы одно имя в верхней таблице." });
+                msg.run(); msg.destroy(); return;
+            }
+            let selectedNames = [];
+            for (let path of rows) {
+                let [ok, iter] = model.get_iter(path);
+                if (ok && iter) selectedNames.push(model.get_value(iter, 1));
+            }
+            if (selectedNames.length > 0) {
+                this.showSymlinkMatrixDialog(this.toolsCurrentSelected, selectedNames);
+            }
+        });
+        syncBox.pack_start(btnSync, false, false, 0);
+        topBox.pack_start(syncBox, false, false, 0);
+        tabByName.pack1(topBox, true, false);
+
+        let bottomBox = new Gtk.Box({ orientation: Gtk.Orientation.VERTICAL, spacing: 5, margin: 4 });
+        this.toolsRightBottomStore = new Gtk.ListStore();
+        this.toolsRightBottomStore.set_column_types([GdkPixbuf.Pixbuf, GObject.TYPE_STRING, GObject.TYPE_STRING, GObject.TYPE_STRING]);
+        
+        let viewBottom = new Gtk.TreeView({ model: this.toolsRightBottomStore, headers_clickable: true });
+        let rColsBot = [["", 0, false], ["Адрес", 1, true], ["Контекст", 2, false], ["Размер", 3, false]];
+        for (let [title, idx, expand] of rColsBot) {
+            let r = (idx === 0) ? new Gtk.CellRendererPixbuf() : new Gtk.CellRendererText();
+            if (idx > 0) r.set_property('ellipsize', 3);
+            let c = new Gtk.TreeViewColumn({ title: title, expand: expand });
+            c.pack_start(r, true);
+            c.add_attribute(r, idx === 0 ? 'pixbuf' : 'text', idx);
+            c.set_resizable(true);
+            viewBottom.append_column(c);
+        }
+        let scrollBottom = new Gtk.ScrolledWindow({ vexpand: true });
+        scrollBottom.add(viewBottom);
+        bottomBox.pack_start(scrollBottom, true, true, 0);
+        tabByName.pack2(bottomBox, true, false);
+
+        viewTop.get_selection().connect('changed', () => {
+            let [rows, model] = viewTop.get_selection().get_selected_rows();
+            this.toolsRightBottomStore.clear();
+            if (rows.length > 0) {
+                let [ok, iter] = model.get_iter(rows[0]); // <--- Распаковка массива
+                if (ok && iter) {
+                    let targetName = model.get_value(iter, 1);
+                    let refs = this.toolsReverseIndex.get(this.toolsCurrentSelected) || [];
+                    for (let ref of refs) {
+                        if (ref.name === targetName) {
+                            let o = ref.occ;
+                            let pb = pixbufFromFileCached(o.fullPath, 24) || getTransparentPixbuf();
+                            let bIter = this.toolsRightBottomStore.append();
+                            this.toolsRightBottomStore.set(bIter, [0, 1, 2, 3], [pb, o.dirName, o.context || '', o.size ? o.size.toString() : '']);
+                        }
+                    }
+                }
+            }
+        });
+
+        rightNotebook.append_page(tabByName, new Gtk.Label({ label: "Поимённо" }));
+        rightBottomBox.pack_start(rightNotebook, true, true, 0);
+        rightPaned.pack2(rightBottomBox, true, false);
+
+        // Задаем начальные пропорции (Верхняя часть - 40%, нижняя - 60%)
+        GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+            rightPaned.set_position(250);
+            return false;
+        });
+
+        paned.pack2(rightPaned, true, false);
+        mainBox.pack_start(paned, true, true, 0);
+
         return mainBox;
     }
 
@@ -3455,6 +4462,231 @@ class MainWindow {
             this.problemsList.add(row);
         }
         this.problemsList.show_all();
+        this.populateToolsMasterStore();
+    }
+
+    populateToolsMasterStore(callback = null) {
+        this.isUpdatingTools = true;
+        if (!this.toolsMasterStore) return;
+        this.toolsMasterStore.clear();
+        
+        // 1. Строим обратный индекс: "имя цели" -> [массив симлинков, которые на него ссылаются]
+        this.toolsReverseIndex = new Map();
+        for (let [otherName, otherOccs] of this.theme.icons) {
+            for (let o of otherOccs) {
+                if (o.isSymlink && o.target) {
+                    let targetBase = GLib.path_get_basename(o.target).replace(/\.[^.]+$/, '');
+                    if (!this.toolsReverseIndex.has(targetBase)) {
+                        this.toolsReverseIndex.set(targetBase, []);
+                    }
+                    this.toolsReverseIndex.get(targetBase).push({
+                        name: otherName,
+                        occ: o
+                    });
+                }
+            }
+        }
+
+        // 2. Собираем имена для левой таблицы (только те, у которых есть оригиналы)
+        let names = new Set();
+        for (let [name, occs] of this.theme.icons) {
+            let hasOriginal = occs.some(o => !o.isSymlink);
+            if (hasOriginal) names.add(name);
+        }
+
+        let sortedNames = Array.from(names).sort();
+        let idx = 0;
+
+        let loadChunk = () => {
+            if (idx >= sortedNames.length) {
+                this.isUpdatingTools = false;
+                if (callback) callback(); // Вызываем коллбэк, когда все строки добавлены
+                return false;
+            }
+            
+            let name = sortedNames[idx];
+            idx++;
+            
+            let occs = this.theme.icons.get(name);
+            
+            // Количество УНИКАЛЬНЫХ ИМЕН, ссылающихся на это имя
+            let symlinkCount = 0;
+            if (this.toolsReverseIndex.has(name)) {
+                let uniqueNames = new Set();
+                for (let ref of this.toolsReverseIndex.get(name)) {
+                    uniqueNames.add(ref.name);
+                }
+                symlinkCount = uniqueNames.size;
+            }
+            
+            let contexts = new Set(occs.map(o => o.context).filter(Boolean));
+            let ctxStr = contexts.size > 1 ? "Multiple" : (Array.from(contexts)[0] || "");
+
+            // Логика для колонки "Статус" (ОК только если все вхождения — оригиналы)
+            let hasSymlinks = occs.some(o => o.isSymlink);
+            let status = hasSymlinks ? "Есть симлинки" : "OK";
+            let color = hasSymlinks ? this.settings.colors.hasSymlinks : this.settings.colors.ok;
+
+            // Ищем превью (сначала оригинал)
+            let previewPb = null;
+            for (let o of occs) {
+                if (!o.isSymlink) { previewPb = pixbufFromFileCached(o.fullPath, 24); if (previewPb) break; }
+            }
+            if (!previewPb) previewPb = getTransparentPixbuf();
+
+            let iter = this.toolsMasterStore.append();
+            this.toolsMasterStore.set(iter, [0, 1, 2, 3, 4, 5, 6], [
+                previewPb, name, ctxStr, symlinkCount, status, color, name.toLowerCase()
+            ]);
+
+            if (idx % 50 === 0) {
+                GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, loadChunk);
+                return false;
+            }
+            return loadChunk();
+        };
+        GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, loadChunk);
+    }
+
+    populateToolsRightPanel(name) {
+        // Очищаем все таблицы правой панели
+        this.toolsRightFilesStore.clear();
+        this.toolsRightStore.clear();
+        this.toolsRightTopStore.clear();
+        this.toolsRightBottomStore.clear();
+        
+        if (!name || !this.toolsReverseIndex) return;
+
+        // 1. Заполняем ВЕРХНЮЮ таблицу (Файлы выбранного имени)
+        let occs = this.theme.icons.get(name) || [];
+        for (let o of occs) {
+            let pb = pixbufFromFileCached(o.fullPath, 24) || getTransparentPixbuf();
+            let iter = this.toolsRightFilesStore.append();
+            this.toolsRightFilesStore.set(iter, [0, 1, 2, 3, 4, 5], [
+                pb, 
+                o.dirName, 
+                o.context || '', 
+                o.size || 0, 
+                o.isSymlink ? 'симлинк' : 'файл', 
+                o.target || ''
+            ]);
+        }
+
+        // 2. Заполняем вкладку "Списком"
+        let refs = this.toolsReverseIndex.get(name) || [];
+        for (let ref of refs) {
+            let o = ref.occ;
+            let pb = pixbufFromFileCached(o.fullPath, 24) || getTransparentPixbuf();
+            let iter = this.toolsRightStore.append();
+            this.toolsRightStore.set(iter, [0, 1, 2, 3], [pb, ref.name, o.dirName, o.context || '']);
+        }
+
+        // 3. Заполняем вкладку "Поимённо" (группируем)
+        let grouped = new Map(); 
+        for (let ref of refs) {
+            if (!grouped.has(ref.name)) grouped.set(ref.name, []);
+            grouped.get(ref.name).push(ref);
+        }
+
+        for (let [gName, gRefs] of grouped) {
+            let firstOcc = gRefs[0].occ;
+            let pb = pixbufFromFileCached(firstOcc.fullPath, 24) || getTransparentPixbuf();
+            let ctxStr = firstOcc.context || '';
+            
+            let iter = this.toolsRightTopStore.append();
+            this.toolsRightTopStore.set(iter, [0, 1, 2, 3], [pb, gName, ctxStr, gRefs.length]);
+        }
+    }
+
+    getDirNameByContextAndSize(context, size) {
+        for (let [dirName, info] of this.theme.dirInfo) {
+            if (info.context === context && Number(info.size) === size) {
+                return dirName;
+            }
+        }
+        return null;
+    }
+
+    updateThemeMemory(toCreate, toDelete) {
+        // 1. Удаляем из памяти
+        for (let item of toDelete) {
+            let baseName = GLib.path_get_basename(item.path).replace(/\.[^.]+$/, '');
+            let occs = this.theme.icons.get(baseName);
+            if (occs) {
+                let filtered = occs.filter(o => o.fullPath !== item.path);
+                if (filtered.length > 0) {
+                    this.theme.icons.set(baseName, filtered);
+                } else {
+                    this.theme.icons.delete(baseName);
+                }
+            }
+        }
+
+        // 2. Добавляем в память
+        for (let item of toCreate) {
+            let baseName = GLib.path_get_basename(item.path).replace(/\.[^.]+$/, '');
+            let fileName = GLib.path_get_basename(item.path);
+            let dirName = GLib.path_get_dirname(item.path).substring(this.theme.themeDir.length + 1);
+            let info = this.theme.dirInfo.get(dirName) || {};
+            
+            if (!this.theme.icons.has(baseName)) {
+                this.theme.icons.set(baseName, []);
+            }
+            
+            let occs = this.theme.icons.get(baseName).filter(o => o.fullPath !== item.path);
+            
+            occs.push({
+                dirName: dirName,
+                fileName: fileName,
+                fullPath: item.path,
+                relPath: dirName + '/' + fileName,
+                isSymlink: true,
+                target: item.target,
+                resolvedTarget: GLib.canonicalize_filename(item.target, GLib.path_get_dirname(item.path)),
+                size: info.size || null,
+                context: info.context || ''
+            });
+            this.theme.icons.set(baseName, occs);
+        }
+    }
+
+    selectToolsName(name) {
+        GLib.timeout_add(GLib.PRIORITY_DEFAULT, 100, () => {
+            let count = this.toolsSortModel.iter_n_children(null);
+            for (let i = 0; i < count; i++) {
+                let [ok, iter] = this.toolsSortModel.get_iter_from_string(i.toString());
+                if (ok && iter && this.toolsSortModel.get_value(iter, 1) === name) {
+                    let path = this.toolsSortModel.get_path(iter);
+                    this.toolsLeftView.get_selection().select_path(path);
+                    this.toolsLeftView.scroll_to_cell(path, null, false, 0, 0);
+                    
+                    // Принудительно обновляем правую панель
+                    this.toolsCurrentSelected = name;
+                    this.populateToolsRightPanel(name);
+                    return false;
+                }
+            }
+            return false;
+        });
+    }
+
+    getRelativeTargetPath(sourceContext, size, targetName) {
+        // 1. Находим оригинал (цель) нужного размера
+        let targetOccs = this.theme.icons.get(targetName) || [];
+        let targetOcc = targetOccs.find(o => Number(o.size) === size && !o.isSymlink);
+        if (!targetOcc) return targetName + '.png'; // Запасной вариант
+
+        // 2. Находим каталог, где будет создаваться симлинк
+        let sourceDirName = this.getDirNameByContextAndSize(sourceContext, size);
+        if (!sourceDirName) return targetName + '.png';
+
+        // 3. Вычисляем относительный путь от папки симлинка до папки оригинала
+        let sourceDir = GLib.build_filenamev([this.theme.themeDir, sourceDirName]);
+        let targetFile = GLib.build_filenamev([this.theme.themeDir, targetOcc.dirName, targetOcc.fileName]);
+        
+        let relPath = Gio.File.new_for_path(sourceDir).get_relative_path(Gio.File.new_for_path(targetFile));
+        
+        return relPath ? relPath : targetName + '.png';
     }
 }
 
