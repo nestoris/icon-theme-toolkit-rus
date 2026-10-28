@@ -1,3 +1,6 @@
+Установщик значков из .ICO в тему для Linux
+Windows .ICO to Linux theme installer
+
 Сохранить в ICO...
 Save to ICO...
 
