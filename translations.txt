@@ -1,0 +1,995 @@
+Сохранить в ICO...
+Save to ICO...
+
+Импортировать из ICO...
+Import from ICO...
+
+Перезагрузить тему
+Reload theme
+
+Скрипт icon-compiler.js не найден в папке программы.
+icon-compiler.js script not found in program folder.
+
+Скрипт winico2linuxtheme.js не найден в папке программы.
+winico2linuxtheme.js script not found in program folder.
+
+Ошибка запуска: 
+Launch error: 
+
+Компилятор ICO
+ICO Compiler
+
+Не передано ни одного корректного PNG-файла.
+No valid PNG files passed.
+
+Имя значка:
+Icon name:
+
+имя.ico
+name.ico
+
+Просмотр:
+Preview:
+
+Только отмеченные
+Only checked
+
+Показывать только отмеченные строки.
+Show only checked rows.
+
+Глубина цвета
+Bit depth
+
+Создать также .ini файл
+Create also .ini file
+
+Сохранить рядом с ICO .ini в формате winico2linuxtheme (секции [defaults] и [bit-depth]).
+Save next to ICO an .ini in winico2linuxtheme format ([defaults] and [bit-depth] sections).
+
+Сохранить ICO...
+Save ICO...
+
+Укажите имя будущего ICO-файла.
+Specify the name of the future ICO file.
+
+Не отмечено ни одного файла.
+No files checked.
+
+Сохранить ICO
+Save ICO
+
+Сохранено: 
+Saved: 
+
+icotool завершился с ошибкой.
+icotool exited with an error.
+
+код выхода 
+exit code 
+
+Не удалось записать ini: 
+Failed to write ini: 
+
+не найден icotool.
+icotool not found.
+
+Установите: apt install icoutils   (Debian/Ubuntu)
+Install: apt install icoutils   (Debian/Ubuntu)
+
+не передано ни одного PNG-файла.
+no PNG files passed.
+
+Просмотр иконок из ICO-файлов и установка в тему Linux.
+View icons from ICO files and install into Linux theme.
+
+Путь к файлу index.theme темы
+Path to theme index.theme file
+
+Контекст для выбора (actions, devices, mimetypes, places и др.)
+Context to select (actions, devices, mimetypes, places, etc.)
+
+Имя значка без расширения
+Icon name without extension
+
+Размер отображения значков в пикселях (по умолчанию: оригинальный)
+Icon display size in pixels (default: original)
+
+Включить сглаживание (библинейную интерполяцию) при масштабировании
+Enable smoothing (bilinear interpolation) when scaling
+
+Показать эту справку и выйти
+Show this help and exit
+
+ICO_ФАЙЛ      Путь к .ico файлу для открытия
+ICO_FILE      Path to .ico file to open
+
+Формат INI-файла (создаётся рядом с ICO):
+INI file format (created next to ICO):
+
+scale=128        # размер отображения (опционально)
+scale=128        # display size (optional)
+
+blur=true        # сглаживание при масштабировании (опционально)
+blur=true        # scaling smoothing (optional)
+
+Доступные глубины цвета:
+Available bit depths:
+
+Ошибка: размер должен быть положительным числом
+Error: size must be a positive number
+
+Ошибка парсинга INI: 
+INI parse error: 
+
+Не удалось прочитать файл: 
+Failed to read file: 
+
+Ошибка парсинга index.theme: 
+index.theme parse error: 
+
+Ошибка выполнения icotool: 
+icotool execution error: 
+
+Ошибка парсинга ICO: 
+ICO parse error: 
+
+Ошибка извлечения ICO: 
+ICO extraction error: 
+
+Имя значка (без расширения)...
+Icon name (without extension)...
+
+Нет контекстов
+No contexts
+
+Открыть ICO файл
+Open ICO file
+
+Открыть файл index.theme
+Open index.theme file
+
+Сохранить параметры в INI файл
+Save parameters to INI file
+
+Путь к директории...
+Path to directory...
+
+Копировать в тему
+Copy to theme
+
+Нет директории для 
+No directory for 
+
+Ошибка icotool: 
+icotool error: 
+
+Ошибка извлечения ICO: 
+ICO extraction error: 
+
+Скопировано: 
+Copied: 
+
+Нет извлечённого изображения для копирования
+No extracted image to copy
+
+Не указан путь назначения
+Destination path not specified
+
+Ошибка копирования: 
+Copy error: 
+
+Сначала откройте ICO файл
+Open ICO file first
+
+Введите имя значка
+Enter icon name
+
+INI файл сохранён: 
+INI file saved: 
+
+Ошибка сохранения INI файла
+Error saving INI file
+
+Ошибка записи: 
+Write error: 
+
+Открыт ICO: 
+Opened ICO: 
+
+Найденные форматы и глубины цвета:
+Found formats and bit depths:
+
+Размер отображения из INI: 
+Display size from INI: 
+
+Размер отображения из аргументов: 
+Display size from arguments: 
+
+Сглаживание включено из INI
+Smoothing enabled from INI
+
+Сглаживание включено из аргументов
+Smoothing enabled from arguments
+
+Загружен INI файл: 
+Loaded INI file: 
+
+Контекст установлен: 
+Context set: 
+
+Контекст ' 
+Context ' 
+
+' не найден в теме
+' not found in theme
+
+' будет установлен после загрузки темы
+' will be set after theme loading
+
+Загрузка темы из аргументов: 
+Loading theme from arguments: 
+
+Файл темы не найден: 
+Theme file not found: 
+
+Загрузка ICO из аргументов: 
+Loading ICO from arguments: 
+
+ICO файл не найден: 
+ICO file not found: 
+
+Загрузка темы: 
+Loading theme: 
+
+Найдены контексты:
+Contexts found:
+
+Выберите ICO файл
+Choose ICO file
+
+ICO файлы
+ICO files
+
+Отмена
+Cancel
+
+Открыть
+Open
+
+Выберите файл index.theme
+Choose index.theme file
+
+Файлы index.theme
+index.theme files
+
+Создано %d симлинк(ов)
+Created %d symlink(s)
+
+Создано %d симлинк(ов) с %d ошибкой(ами)
+Created %d symlink(s) with %d error(s)
+
+Выберите master-файл
+Choose master file
+
+Файл
+File
+
+Выберите файл, который станет мастером. Другие файлы в этом контексте станут симлинками на него.
+Choose a file to become the master. Other files in this context will become symlinks to it.
+
+Преобразовать %d симлинков в физические файлы?
+Convert %d symlinks to physical files?
+
+Каждый симлинк будет заменён копией файла-цели.
+Each symlink will be replaced with a copy of its target file.
+
+Исправить %d цепочек симлинков?
+Fix %d symlink chains?
+
+Каждый симлинк, указывающий на другой симлинк, будет перенаправлен напрямую на конечный файл.
+Each symlink pointing to another symlink will be retargeted directly to the final file.
+
+Удалить %d битых симлинков?
+Delete %d broken symlinks?
+
+Ошибки:
+Errors:
+
+Цепочка
+Chain
+
+Файлы в этом контексте
+Files in this context
+
+Ссылаются на
+Referenced by
+
+Физический файл
+Physical file
+
+Реферер
+Referrer
+
+Иконка
+Icon
+
+Нет физических файлов в этом контексте. Невозможно выбрать master.
+No physical files in this context. Cannot choose a master.
+
+Преобразовано %d файлов в симлинки
+Converted %d files to symlinks
+
+Преобразовано %d симлинков в файлы
+Converted %d symlinks to files
+
+Развернуть цепочки
+Unchain
+
+Исправлено %d цепочек
+Fixed %d chains
+
+Удалить битые
+Remove broken
+
+Удалено %d битых симлинков
+Removed %d broken symlinks
+
+Нет симлинков в этом контексте.
+No symlinks in this context.
+
+Нет цепочек симлинков.
+No symlink chains.
+
+Нет битых симлинков в этом контексте.
+No broken symlinks in this context.
+
+Скомпилировать ICO...
+Compile ICO...
+
+Скомпилировать файлы значков из этого окна в ICO. Если выбраны строки, будут переданы только они.
+Compile icon files from this window into ICO. If rows are selected, only those will be passed.
+
+icotool не установлен. Установите пакет "icoutils".
+icotool is not installed. Install the "icoutils" package.
+
+Обновить
+Refresh
+
+Перечитать файлы и симлинки этого значка с диска, затем перестроить индекс.
+Re-read files and symlinks of this icon from disk, then rebuild the index.
+
+Закрыть это окно. Уже примененные изменения останутся на диске.
+Close this window. Applied changes remain on disk.
+
+Свойства: %s
+Properties: %s
+
+Нет файлов для компиляции.
+No files to compile.
+
+Доступные глубины цвета:
+Available bit depths:
+
+Обновить
+Refresh
+
+Свойства:
+Properties:
+
+Свойства: %s
+Properties: %s
+
+Матрица симлинков
+Symlinks Matrix
+
+Не удалось открыть путь: 
+Failed to open path: 
+
+Добавить системные темы
+Add system themes
+
+Отмена
+Cancel
+
+Добавить выбранные
+Add selected
+
+Выберите одну или несколько системных тем для добавления:
+Select one or more system themes to add:
+
+Превью
+Preview
+
+Название
+Name
+
+Путь
+Path
+
+Пожалуйста, подождите
+Please wait
+
+Подготовка...
+Preparing...
+
+Битые симлинки: 
+Broken symlinks: 
+
+Найти цели
+Find targets
+
+Сохранить выбранное
+Save selected
+
+Закрыть
+Close
+
+Симлинк
+Symlink
+
+Цель (относительно симлинка)
+Target (relative to symlink)
+
+Выберите файл-цель
+Choose target file
+
+Выбрать
+Select
+
+Ошибка записи симлинка 
+Error writing symlink 
+
+Отмечено дэдлинков с найденными целями: 
+Deadlinks marked with found targets: 
+
+Автоматически исправлено (был 1 вариант): 
+Automatically fixed (1 variant): 
+
+Кликните по ячейке «Цель», чтобы выбрать из нескольких вариантов.
+Click the «Target» cell to choose from multiple variants.
+
+Подходящих целей не найдено.
+No suitable targets found.
+
+Icon Theme Toolkit
+Icon Theme Toolkit
+
+Сравнение
+Comparison
+
+Редактор темы
+Theme Editor
+
+Инструменты
+Tools
+
+Синхронизация размеров
+Size Synchronization
+
+Применить
+Apply
+
+Сохранить
+Save
+
+Управление симлинками на 
+Manage symlinks to 
+
+Перезаписывать файлы
+Overwrite files
+
+Выбрать все
+Select all
+
+Файл (занято)
+File (busy)
+
+Будет перезаписан
+Will be overwritten
+
+ (цепочка)
+ (chain)
+
+Будет создано симлинков: 
+Symlinks to create: 
+
+Будет удалено файлов/симлинков: 
+Files/symlinks to delete: 
+
+Продолжить?
+Continue?
+
+Сохранение изменений
+Saving changes
+
+Обновление файлов...
+Updating files...
+
+Удаление: 
+Deleting: 
+
+Создание: 
+Creating: 
+
+Завершено с ошибками: 
+Completed with errors: 
+
+Удалить файлы
+Delete files
+
+Удалить выбранное
+Delete selected
+
+Файлы для имени: 
+Files for name: 
+
+симлинк
+symlink
+
+файл
+file
+
+Контекст
+Context
+
+Каталог
+Directory
+
+Размер
+Size
+
+Статус
+Status
+
+Цель
+Target
+
+Ошибка удаления 
+Error deleting 
+
+Добавить тему...
+Add theme...
+
+Системные темы...
+System themes...
+
+Настройки
+Settings
+
+Фильтр:
+Filter:
+
+Поиск значка...
+Search icon...
+
+Все
+All
+
+Только в главной
+Only in main
+
+Нет в главной
+Not in main
+
+Есть во всех, кроме главной
+In all except main
+
+Имя значка
+Icon name
+
+Темы
+Themes
+
+Контексты
+Contexts
+
+Выберите значок
+Select icon
+
+Файлы
+Files
+
+Тема
+Theme
+
+Тип
+Type
+
+Визуально
+Visual
+
+Размер превью:
+Preview size:
+
+Поиск по имени...
+Search by name...
+
+Имя
+Name
+
+Симлинков
+Symlinks
+
+Удалить часть файлов
+Delete some files
+
+Переместить/Копировать/Переименовать
+Move/Copy/Rename
+
+Сделать симлинком на другое имя
+Make symlink to another name
+
+Файлы выбранного имени
+Files of selected name
+
+Симлинки на выбранное имя
+Symlinks to selected name
+
+Списком
+As list
+
+Поимённо
+By name
+
+Имя симлинка
+Symlink name
+
+Адрес
+Address
+
+Синхронизировать размеры...
+Synchronize sizes...
+
+Выберите хотя бы одно имя в верхней таблице.
+Select at least one name in the top table.
+
+Кол-во
+Count
+
+Обработка темы 
+Processing theme 
+
+Построение таблицы...
+Building table...
+
+Построение строк 
+Building rows 
+
+ из 
+ of 
+
+Нет в 
+Missing in 
+
+ темах
+ themes
+
+Только симлинки
+Symlinks only
+
+Есть симлинки
+Has symlinks
+
+Обновление статусов...
+Updating statuses...
+
+Обновление 
+Updating 
+
+Отсутствует:
+Missing:
+
+Есть симлинки:
+Has symlinks:
+
+Только симлинки:
+Symlinks only:
+
+Размер превью (Visual):
+Preview size (Visual):
+
+Главная тема
+Main theme
+
+Открыть каталог
+Open directory
+
+Сделать главной
+Make main
+
+Смена главной темы
+Changing main theme
+
+Перенастройка данных...
+Reconfiguring data...
+
+Загрузка темы
+Loading theme
+
+Загрузка 
+Loading 
+
+Не удалось загрузить тему (возможно, это тема курсоров): 
+Failed to load theme (possibly a cursor theme): 
+
+Основные параметры
+Main parameters
+
+Имя:
+Name:
+
+Комментарий:
+Comment:
+
+Пример:
+Example:
+
+Предпросмотр:
+Preview:
+
+Локализация...
+Localization...
+
+Изменить Inherits...
+Edit Inherits...
+
+Текущее: не задано
+Current: not set
+
+Изменить Directories...
+Edit Directories...
+
+Каталоги (index.theme)
+Directories (index.theme)
+
+Проблемы
+Problems
+
+Выберите каталог в списке выше
+Select a directory in the list above
+
++ Добавить параметр
++ Add parameter
+
+Сохранить изменения
+Save changes
+
+Исправить проблему
+Fix problem
+
+Создать каталог
+Create directory
+
+Удалить каталог
+Delete directory
+
+Проблемы (
+Problems (
+
+Применить текст к таблице
+Apply text to table
+
+Сохранить на диск
+Save to disk
+
+Сбросить
+Reset
+
+Текст успешно применен к левой панели.
+Text successfully applied to the left panel.
+
+Файл index.theme успешно сохранен!
+File index.theme successfully saved!
+
+Ошибка сохранения: 
+Save error: 
+
+Добавить секцию
+Add section
+
+Контекст (Context):
+Context:
+
+Размер (Size):
+Size:
+
+Масштаб (Scale):
+Scale:
+
+Вариант (папка):
+Variant (folder):
+
+например, symbolic
+e.g. symbolic
+
+Тип (Type):
+Type:
+
+Итоговый путь:
+Resulting path:
+
+Ошибка создания папки: 
+Error creating directory: 
+
+Каталог 
+Directory 
+
+ создан и добавлен в index.theme.
+ created and added to index.theme.
+
+Создать пустой каталог "
+Create empty directory "
+
+" на диске?
+" on disk?
+
+Ошибка: 
+Error: 
+
+Внести каталог "
+Add directory "
+
+" в список Directories?
+" to Directories list?
+
+Автоисправление пробелов пока не реализовано.
+Auto-fix for spaces is not implemented yet.
+
+Удалить каталог "
+Delete directory "
+
+Он будет удален из списка Directories и секций в тексте. Физическая папка на диске не удаляется.
+It will be removed from Directories list and text sections. The physical folder on disk is not deleted.
+
+ удален из текста.
+ removed from text.
+
+Найти замену для "
+Find replacement for "
+
+Удалить битый симлинк
+Delete broken symlink
+
+Игнорировать (заглушка)
+Ignore (stub)
+
+Битые симлинки
+Broken symlinks
+
+Пробелы
+Spaces
+
+Нет на диске
+Not on disk
+
+Нет в Directories
+Not in Directories
+
+Нет секции
+No section
+
+Другое
+Other
+
+Битый симлинк
+Broken symlink
+
+Параметры: 
+Parameters: 
+
+Битые симлинки (
+Broken symlinks (
+
+Пробелы в именах (
+Spaces in names (
+
+Не удалось найти секцию 
+Failed to find section 
+
+ в тексте.
+ in text.
+
+Секция [
+Section [
+
+] обновлена в тексте.
+] updated in text.
+
+Язык (Код)
+Language (Code)
+
+Переместить вверх
+Move up
+
+Переместить вниз
+Move down
+
+Добавить язык
+Add language
+
+Удалить
+Delete
+
+Добавить...
+Add...
+
+Добавить 
+Add 
+
+Элементы (сверху вниз) 
+Items (top to bottom) 
+
+Локализация обновлена в тексте.
+Localization updated in text.
+
+Путь к каталогу темы или файлу index.theme.
+Path to theme directory or index.theme file.
+
+Если не указан, открывается вкладка сравнения.
+If not specified, the comparison tab opens.
+
+Показать эту справку и выйти
+Show this help and exit
+
+Опции:
+Options:
+
+Аргументы:
+Arguments:
+
+Использование: gjs icon-theme-toolkit.js [опции] [путь_к_теме]
+Usage: gjs icon-theme-toolkit.js [options] [theme_path]
+
+Не удалось загрузить тему.
+Failed to load theme.
+
+Ошибка чтения: 
+Read error: 
+
+Ошибка загрузки: 
+Load error: 
+
+Загрузка отменена пользователем.
+Loading cancelled by user.
+
+Это тема курсоров. Редактор значков не поддерживает её.
+This is a cursor theme. The icon editor does not support it.
+
+Не удалось прочитать файл
+Failed to read file
+
+Файл содержит CRLF. Рекомендуется LF.
+File contains CRLF. LF is recommended.
+
+Файл содержит BOM.
+File contains BOM.
+
+Отсутствует секция [
+Missing section [
+
+] в index.theme.
+] in index.theme.
+
+" содержит пробелы.
+" contains spaces.
+
+Ошибка парсинга: 
+Parse error: 
+
+" отсутствует в Directories.
+" is missing from Directories.
+
+Сканирование 
+Scanning 
+
+" отсутствует на диске.
+" is missing on disk.
+
+" содержит пробелы.
+" contains spaces.
+
+Битый симлинк: 
+Broken symlink: 
+
+Ошибка сохранения настроек: 
+Settings save error: 
