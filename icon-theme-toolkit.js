@@ -1376,9 +1376,9 @@ class MainWindow {
 
         let cmd = ['gjs', script, '--name=' + name + '.ico', '--themefile=' + this.theme.indexPath];
         
-        // Передаем контекст, если он один
-        let contexts = new Set(occs.map(o => o.context).filter(Boolean));
-        if (contexts.size === 1) cmd.push('--context=' + Array.from(contexts)[0]);
+        // Передаем имя папки, а не Context, для совместимости с winico2linuxtheme.js
+        let folders = new Set(occs.map(o => o.dirName.split('/')[0]).filter(Boolean));
+        if (folders.size === 1) cmd.push('--context=' + Array.from(folders)[0]);
 
         for (let p of pngPaths) cmd.push(p);
 
@@ -1391,6 +1391,14 @@ class MainWindow {
     }
 
     runIcoInstaller() {
+        if (GLib.find_program_in_path('icotool') == null) {
+            let msg = new Gtk.MessageDialog({ 
+                transient_for: this.window, modal: true, message_type: Gtk.MessageType.ERROR, 
+                buttons: Gtk.ButtonsType.OK, text: "Программа icotool не найдена. Установите пакет icoutils." 
+            });
+            msg.run(); msg.destroy(); return;
+        }
+
         let script = GLib.build_filenamev([here, 'winico2linuxtheme.js']);
         if (!Gio.File.new_for_path(script).query_exists(null)) {
             let msg = new Gtk.MessageDialog({ transient_for: this.window, modal: true, message_type: Gtk.MessageType.ERROR, buttons: Gtk.ButtonsType.OK, text: "Скрипт winico2linuxtheme.js не найден в папке программы." });
@@ -1980,11 +1988,22 @@ class MainWindow {
         toolbar.pack_start(btnLink, false, false, 0);
 
         // НОВЫЕ КНОПКИ: Экспорт и Импорт ICO
-        let btnIcoOut = new Gtk.Button({ image: Gtk.Image.new_from_icon_name("document-export-symbolic", Gtk.IconSize.BUTTON), tooltip_text: "Сохранить в ICO..." });
+        let hasIcotool = false;
+        try { hasIcotool = GLib.find_program_in_path('icotool') != null; } catch(e) {}
+
+        let btnIcoOut = new Gtk.Button({ 
+            image: Gtk.Image.new_from_icon_name("document-export-symbolic", Gtk.IconSize.BUTTON), 
+            tooltip_text: hasIcotool ? "Сохранить в ICO..." : "icotool не установлен (установите пакет icoutils)",
+            sensitive: hasIcotool
+        });
         btnIcoOut.connect('clicked', () => this.runIcoCompiler());
         toolbar.pack_start(btnIcoOut, false, false, 0);
 
-        let btnIcoIn = new Gtk.Button({ image: Gtk.Image.new_from_icon_name("document-import-symbolic", Gtk.IconSize.BUTTON), tooltip_text: "Импортировать из ICO..." });
+        let btnIcoIn = new Gtk.Button({ 
+            image: Gtk.Image.new_from_icon_name("document-import-symbolic", Gtk.IconSize.BUTTON), 
+            tooltip_text: hasIcotool ? "Импортировать из ICO..." : "icotool не установлен (установите пакет icoutils)",
+            sensitive: hasIcotool
+        });
         btnIcoIn.connect('clicked', () => this.runIcoInstaller());
         toolbar.pack_start(btnIcoIn, false, false, 0);
         
@@ -2689,10 +2708,11 @@ class MainWindow {
             itDir.connect('activate', () => openPathWithDefault(t.themeDir));
             menu.append(itDir);
 
-            // НОВЫЙ ПУНКТ: Перезагрузить
             let itReload = new Gtk.MenuItem({ label: 'Перезагрузить тему' });
             itReload.connect('activate', async () => {
-                // Очищаем кэш в памяти, чтобы принудительно перечитать с диска
+                let prevToolsSelected = this.toolsCurrentSelected; // Запоминаем выбор
+                
+                // Очищаем кэш в памяти
                 t.isLoaded = false; 
                 t.icons.clear();
                 t.directories = [];
@@ -2702,11 +2722,21 @@ class MainWindow {
                 await t.load(progress);
                 progress.close();
                 
-                this.rebuildComparisonAsync(null);
-                this.populateToolsMasterStore();
-                
                 if (this.theme === t) {
+                    // Если перезагружаем главную тему, loadThemeData сам всё обновит
                     await this.loadThemeData(t.indexPath, true);
+                } else {
+                    // Если другую — обновляем вручную
+                    await this.rebuildComparisonAsync(null);
+                    this.populateToolsMasterStore(() => {
+                        this.toolsCurrentSelected = prevToolsSelected;
+                        if (prevToolsSelected && this.theme.icons.has(prevToolsSelected)) {
+                            this.selectToolsName(prevToolsSelected);
+                        } else {
+                            this.toolsCurrentSelected = null;
+                            this.populateToolsRightPanel(null);
+                        }
+                    });
                 }
             });
             menu.append(itReload);
@@ -4556,7 +4586,16 @@ class MainWindow {
             this.problemsList.add(row);
         }
         this.problemsList.show_all();
-        this.populateToolsMasterStore();
+        let prevToolsSelected = this.toolsCurrentSelected;
+        this.populateToolsMasterStore(() => {
+            this.toolsCurrentSelected = prevToolsSelected;
+            if (prevToolsSelected && this.theme.icons.has(prevToolsSelected)) {
+                this.selectToolsName(prevToolsSelected);
+            } else {
+                this.toolsCurrentSelected = null;
+                this.populateToolsRightPanel(null);
+            }
+        });
     }
 
     populateToolsMasterStore(callback = null) {

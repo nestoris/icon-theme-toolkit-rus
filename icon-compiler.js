@@ -195,8 +195,8 @@ class IconCompilerWindow {
 
         let cbToggle = new Gtk.CellRendererToggle();
         cbToggle.connect('toggled', (r, pathStr) => {
-            let iter = this.store.get_iter(new Gtk.TreePath.new_from_string(pathStr));
-            if (!iter) return;
+            let [ok, iter] = this.store.get_iter_from_string(pathStr);
+            if (!ok || !iter) return;
             let cur = this.store.get_value(iter, 0);
             this.store.set_value(iter, 0, !cur);
             let absPath = this.store.get_value(iter, 5);
@@ -240,24 +240,28 @@ class IconCompilerWindow {
         bdR.set_property('model', bdModel);
         bdR.set_property('text-column', 0);
         bdR.connect('edited', (r, pathStr, newText) => {
-            let iter = this.store.get_iter(new Gtk.TreePath.new_from_string(pathStr));
-            if (!iter) return;
-            let tree = bdModel.get_iter_first();
-            while (tree) {
-                if (bdModel.get_value(tree, 0) === newText) {
-                    let v = bdModel.get_value(tree, 1);
-                    this.store.set_value(iter, 3, v);
-                    this.store.set_value(iter, 4, newText);
-                    let absPath = this.store.get_value(iter, 5);
-                    for (let i = 0; i < this.rows.length; i++) {
-                        if (this.rows[i].path === absPath) {
-                            this.rows[i].bitDepth = v;
-                            break;
+            let [ok, iter] = this.store.get_iter_from_string(pathStr);
+            if (!ok || !iter) return;
+            
+            let count = bdModel.iter_n_children(null);
+            for (let i = 0; i < count; i++) {
+                let [is_ok, tree_iter] = bdModel.get_iter_from_string(i.toString());
+                if (is_ok && tree_iter) {
+                    if (bdModel.get_value(tree_iter, 0) === newText) {
+                        let v = bdModel.get_value(tree_iter, 1);
+                        this.store.set_value(iter, 3, v);
+                        this.store.set_value(iter, 4, newText);
+                        
+                        let absPath = this.store.get_value(iter, 5);
+                        for (let j = 0; j < this.rows.length; j++) {
+                            if (this.rows[j].path === absPath) {
+                                this.rows[j].bitDepth = v;
+                                break;
+                            }
                         }
+                        break;
                     }
-                    break;
                 }
-                tree = bdModel.iter_next(tree);
             }
         });
         let bdCol = new Gtk.TreeViewColumn({ title: 'Глубина цвета' });
@@ -287,7 +291,7 @@ class IconCompilerWindow {
         // --- Нижняя строка ---
         let bottom = new Gtk.Box({ orientation: Gtk.Orientation.HORIZONTAL, spacing: 8 });
 
-        this.makeIni = new Gtk.CheckButton({ label: 'Создать также .ini файл' });
+        this.makeIni = new Gtk.CheckButton({ label: 'Создать также .ini файл', active: true });
         this.makeIni.set_tooltip_text(
             'Сохранить рядом с ICO .ini в формате winico2linuxtheme ' +
             '(секции [defaults] и [bit-depth]).');

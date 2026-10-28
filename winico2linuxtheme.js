@@ -310,32 +310,29 @@ function parseIniFile(iniFilePath) {
 }
 
 function parseIndexTheme(filePath) {
-    let dirArray = {};
+    let result = {
+        dirArray: {},
+        contextMap: {} // <-- НОВОЕ: Карта "Context" -> "Имя папки"
+    };
     
     try {
         let file = Gio.File.new_for_path(filePath);
         let [success, contents] = file.load_contents(null);
-        
-        if (!success) {
-            log("Не удалось прочитать файл: " + filePath);
-            return dirArray;
-        }
+        if (!success) return result;
         
         let text = imports.byteArray.toString(contents);
         let lines = text.split('\n');
-        
         let currentSection = '';
+        let currentContext = '';
         
         for (let i = 0; i < lines.length; i++) {
             let line = lines[i].trim();
-            
-            if (line === '' || line.startsWith('#')) {
-                continue;
-            }
+            if (line === '' || line.startsWith('#')) continue;
             
             let sectionMatch = line.match(/^\[(.+)\]$/);
             if (sectionMatch) {
                 currentSection = sectionMatch[1];
+                currentContext = '';
                 continue;
             }
             
@@ -344,32 +341,27 @@ function parseIndexTheme(filePath) {
                 let key = keyValue[0].trim();
                 let value = keyValue[1].trim();
                 
-                if (currentSection.match(/^[^\/]+\/\d+x\d+$/) || 
-                    currentSection.match(/^[^\/]+\/\d+$/)) {
-                    
+                if (currentSection.match(/^[^\/]+\/\d+x\d+$/) || currentSection.match(/^[^\/]+\/\d+$/)) {
                     if (key === 'Type' && value === 'Fixed') {
                         let parts = currentSection.split('/');
-                        let context = parts[0];
+                        let folderName = parts[0];
                         let size = parts[1];
                         
-                        if (!dirArray[context]) {
-                            dirArray[context] = [];
-                        }
-                        
+                        if (!result.dirArray[folderName]) result.dirArray[folderName] = [];
                         let sizeNum = parseInt(size);
-                        if (!isNaN(sizeNum) && !dirArray[context].includes(sizeNum)) {
-                            dirArray[context].push(sizeNum);
-                            dirArray[context].sort((a, b) => a - b);
+                        if (!isNaN(sizeNum) && !result.dirArray[folderName].includes(sizeNum)) {
+                            result.dirArray[folderName].push(sizeNum);
+                            result.dirArray[folderName].sort((a, b) => a - b);
                         }
+                    } else if (key === 'Context') {
+                        let folderName = currentSection.split('/')[0];
+                        result.contextMap[value] = folderName; // Запоминаем связь
                     }
                 }
             }
         }
-    } catch (e) {
-        log("Ошибка парсинга index.theme: " + e.message);
-    }
-    
-    return dirArray;
+    } catch (e) {}
+    return result;
 }
 
 function getThemeBasePath(indexThemePath) {
@@ -1018,6 +1010,12 @@ function loadIcoWithIni(filePath) {
         let contextToSet = cmdlineContext || iniData.context;
         
         if (contextToSet) {
+            // Если в ini записан Context (например, Applications), а папка называется иначе (apps)
+            if (window.contextMap && window.contextMap[contextToSet]) {
+                print("Контекст '" + contextToSet + "' сопоставлен с папкой '" + window.contextMap[contextToSet] + "'");
+                contextToSet = window.contextMap[contextToSet];
+            }
+
             if (Object.keys(dirArray).length > 0) {
                 if (selectContext(contextToSet)) {
                     print("Контекст установлен: " + contextToSet);
@@ -1073,7 +1071,11 @@ function loadThemeFile(filePath) {
     print("Загружена тема: " + themeFilePath);
     
     themeBasePath = getThemeBasePath(themeFilePath);
-    dirArray = parseIndexTheme(themeFilePath);
+    
+    // НОВОЕ: Распаковка результата
+    let parsed = parseIndexTheme(themeFilePath);
+    dirArray = parsed.dirArray;
+    window.contextMap = parsed.contextMap; // Сохраняем карту глобально для доступа
     
     print("Найдены контексты:");
     for (let context in dirArray) {
