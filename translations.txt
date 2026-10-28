@@ -1,3 +1,18 @@
+Показывать все имена в теме, включая те, которые состоят только из симлинков (без физических оригиналов).
+Show all names in the topic, including those that consist solely of symlinks (without the actual original files).
+
+Показывать симлинки
+Show symlinks
+
+Сделать симлинком / Оригиналом
+Make a symlink / Original
+
+Элементы (сверху вниз)
+Elements (from top to bottom)
+
+Добавить...
+Add...
+
 Установщик значков из .ICO в тему для Linux
 Windows .ICO to Linux theme installer
 
@@ -1017,3 +1032,9 @@ This icon has no physical files (only symlinks).
 
 Ошибка запуска: 
 Launch error: 
+
+Создать
+Create
+
+Показать все
+Show all
