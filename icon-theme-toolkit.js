@@ -55,8 +55,12 @@ function pixbufFromFileCached(path, size) {
 
     let result = null;
     try {
+        // Если size == -1, возвращаем оригинал без масштабирования
+        if (size === -1) {
+            result = GdkPixbuf.Pixbuf.new_from_file(path);
+        } 
         // Если это SVG, рендерим его сразу в нужном размере (без пикселизации)
-        if (path.toLowerCase().endsWith('.svg')) {
+        else if (path.toLowerCase().endsWith('.svg')) {
             result = GdkPixbuf.Pixbuf.new_from_file_at_scale(path, size, size, true);
         } else {
             // Для растровых (PNG, XPM) используем NEAREST (без сглаживания)
@@ -1909,12 +1913,22 @@ class MainWindow {
         visualTab.pack_start(scrollVisual, true, true, 0);
 
         let visualBottom = new Gtk.Box({ orientation: Gtk.Orientation.HORIZONTAL, spacing: 5 });
+        
+        this.visualScaleChk = new Gtk.CheckButton({ active: true });
+        this.visualScaleChk.set_tooltip_text("Масштабировать превью (если выключено, иконки отображаются в реальном размере)");
+        this.visualScaleChk.connect('toggled', () => {
+            // Блокируем/разблокируем ComboBox
+            this.visualSizeCombo.set_sensitive(this.visualScaleChk.get_active());
+            // Перерисовываем картинки
+            this.updateVisualPixbufs();
+        });
+        visualBottom.pack_start(this.visualScaleChk, false, false, 0);
+
         visualBottom.pack_start(new Gtk.Label({ label: "Размер превью:" }), false, false, 0);
         
         this.visualSizeCombo = Gtk.ComboBoxText.new_with_entry();
         this.visualSizeCombo.get_child().set_width_chars(5);
         
-        // При изменении значения вручную (или выборе из списка)
         this.visualSizeCombo.get_child().connect('changed', () => {
             if (this.isUpdatingVisual) return;
             let size = parseInt(this.visualSizeCombo.get_child().get_text());
@@ -1922,14 +1936,11 @@ class MainWindow {
                 this.settings.visualPreviewSize = size;
                 this.settings.save();
                 this.refreshVisualSizes();
-                this.updateVisualPixbufs(); // Обновляем только картинки
+                this.updateVisualPixbufs(); 
             }
         });
         
         this.visualSizeCombo.get_child().set_text(this.settings.visualPreviewSize.toString());
-        visualBottom.pack_start(this.visualSizeCombo, false, false, 0);
-        visualBottom.pack_start(new Gtk.Label({ label: "" }), true, true, 0);
-        visualTab.pack_start(visualBottom, false, false, 0);
         visualBottom.pack_start(this.visualSizeCombo, false, false, 0);
         visualBottom.pack_start(new Gtk.Label({ label: "" }), true, true, 0);
         visualTab.pack_start(visualBottom, false, false, 0);
@@ -2577,6 +2588,10 @@ class MainWindow {
         
         let activeThemes = this.loadedThemes.filter(t => t.checked);
         let count = this.visualStore.iter_n_children(null);
+        let isScaled = this.visualScaleChk ? this.visualScaleChk.get_active() : true;
+        
+        // Если не масштабируем, передаем -1
+        let targetSize = isScaled ? this.settings.visualPreviewSize : -1;
 
         for (let i = 0; i < count; i++) {
             let [ok, iter] = this.visualStore.get_iter_from_string(i.toString());
@@ -2588,7 +2603,7 @@ class MainWindow {
             for (let theme of activeThemes) {
                 let match = entry.occurrences.find(o => o.theme === theme && Number(o.size) === sz);
                 if (match) {
-                    let pb = pixbufFromFileCached(match.fullPath, this.settings.visualPreviewSize);
+                    let pb = pixbufFromFileCached(match.fullPath, targetSize);
                     rowData.push(pb || getTransparentPixbuf());
                     rowData.push(match.isSymlink ? '#D9E6F2' : '#FFFFFF');
                 } else {

@@ -1,3 +1,6 @@
+Если выключено, иконки отображаются в реальном размере
+If disabled, icons are displayed at their actual size
+
 Использование: 
 Usage: 
 
@@ -1065,3 +1068,6 @@ path_to_theme
 
 Добавить
 Add
+
+Масштабировать
+Scale
