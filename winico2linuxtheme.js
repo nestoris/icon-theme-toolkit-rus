@@ -479,14 +479,14 @@ let useBlur = false;     // Использовать ли сглаживание
 
 let window = new Gtk.Window({
     title: "Установщик значков из .ICO в тему для Linux",
-    default_width: 1000,
-    default_height: 700,
-    border_width: 10
+    default_width: 700,
+    default_height: 400,
+    border_width: 1
 });
 
 let mainVbox = new Gtk.Box({
     orientation: Gtk.Orientation.VERTICAL,
-    spacing: 10
+    spacing: 1
 });
 
 let scrollWindow = new Gtk.ScrolledWindow({
@@ -496,14 +496,14 @@ let scrollWindow = new Gtk.ScrolledWindow({
 
 let scrollVbox = new Gtk.Box({
     orientation: Gtk.Orientation.VERTICAL,
-    spacing: 5
+    spacing: 2
 });
 
 // ==================== ВЕРХНИЙ БЛОК ====================
 
 let topHbox = new Gtk.Box({
     orientation: Gtk.Orientation.HORIZONTAL,
-    spacing: 10,
+    spacing: 3,
     valign: Gtk.Align.START
 });
 
@@ -522,7 +522,7 @@ let openThemeButton = new Gtk.Button({
     tooltip_text: "Открыть файл index.theme"
 });
 let themeIcon = new Gtk.Image({
-    icon_name: "document-open",
+    icon_name: "application-x-theme",
     icon_size: Gtk.IconSize.BUTTON
 });
 openThemeButton.set_image(themeIcon);
@@ -579,10 +579,10 @@ function selectContext(contextName) {
 function createBottomHbox(format, bitDepths, defaultBitDepth) {
     let hbox = new Gtk.Box({
         orientation: Gtk.Orientation.HORIZONTAL,
-        spacing: 10,
+        spacing: 2,
         valign: Gtk.Align.CENTER,
-        margin_top: 2,
-        margin_bottom: 2
+        margin_top: 0,
+        margin_bottom: 0
     });
     
     let leftImage = new Gtk.Image();
