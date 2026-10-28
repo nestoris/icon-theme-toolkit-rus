@@ -996,3 +996,24 @@ Broken symlink:
 
 Ошибка сохранения настроек: 
 Settings save error: 
+
+icotool не установлен (установите пакет icoutils)
+icotool not installed (install the icoutils package)
+
+Программа icotool не найдена. Установите пакет icoutils.
+Program icotool not found. Install the icoutils package.
+
+Скрипт icon-compiler.js не найден в папке программы.
+icon-compiler.js script not found in the program folder.
+
+Скрипт winico2linuxtheme.js не найден в папке программы.
+winico2linuxtheme.js script not found in the program folder.
+
+Сначала выберите имя значка в левой таблице.
+First select an icon name in the left table.
+
+У этого значка нет физических файлов (только симлинки).
+This icon has no physical files (only symlinks).
+
+Ошибка запуска: 
+Launch error: 
