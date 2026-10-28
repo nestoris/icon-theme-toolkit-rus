@@ -25,7 +25,8 @@ var Settings = class Settings {
         this.bgColors = {
             missing: '#FFFFFF', symlinksOnly: '#FFFFFF', hasSymlinks: '#FFFFFF', ok: '#FFFFFF'
         };
-
+        this.visualBgColor = '#FFFFFF';
+        this.useVisualBg = false;
         this.mainThemePath = ''; // Путь к index.theme главной темы
 
         this.load();
@@ -50,6 +51,8 @@ var Settings = class Settings {
             try { this.colors.hasSymlinks  = kf.get_string('colors', 'has_symlinks'); } catch (e) {}
             try { this.colors.ok           = kf.get_string('colors', 'ok'); } catch (e) {}
             try { this.visualPreviewSize = kf.get_integer('ui', 'visual_preview_size'); } catch (e) {}
+            try { this.visualBgColor = kf.get_string('visual', 'bg_color') || '#FFFFFF'; } catch (e) {}
+            try { this.useVisualBg = kf.get_boolean('visual', 'use_bg'); } catch (e) {}
 
             try { this.mainThemePath = kf.get_string('main', 'theme_path') || ''; } catch (e) {}
         } catch (e) {
@@ -74,6 +77,8 @@ var Settings = class Settings {
         kf.set_boolean('colors', 'use_has_symlinks', this.useColors.hasSymlinks);
         kf.set_boolean('colors', 'use_ok', this.useColors.ok);
         kf.set_string('main', 'theme_path', this.mainThemePath || '');
+        kf.set_string('visual', 'bg_color', this.visualBgColor);
+        kf.set_boolean('visual', 'use_bg', this.useVisualBg);
 
         try { kf.save_to_file(this.path); } catch (e) { print("Ошибка сохранения настроек: " + e.message); }
     }

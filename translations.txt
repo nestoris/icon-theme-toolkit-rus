@@ -1071,3 +1071,6 @@ Add
 
 Масштабировать
 Scale
+
+Свой фон
+Custom background

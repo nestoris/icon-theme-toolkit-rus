@@ -1917,9 +1917,7 @@ class MainWindow {
         this.visualScaleChk = new Gtk.CheckButton({ active: true });
         this.visualScaleChk.set_tooltip_text("Масштабировать превью (если выключено, иконки отображаются в реальном размере)");
         this.visualScaleChk.connect('toggled', () => {
-            // Блокируем/разблокируем ComboBox
             this.visualSizeCombo.set_sensitive(this.visualScaleChk.get_active());
-            // Перерисовываем картинки
             this.updateVisualPixbufs();
         });
         visualBottom.pack_start(this.visualScaleChk, false, false, 0);
@@ -1942,6 +1940,31 @@ class MainWindow {
         
         this.visualSizeCombo.get_child().set_text(this.settings.visualPreviewSize.toString());
         visualBottom.pack_start(this.visualSizeCombo, false, false, 0);
+        
+        // НОВЫЕ ЭЛЕМЕНТЫ: Свой фон
+        this.visualBgChk = new Gtk.CheckButton({ label: "Свой фон", active: this.settings.useVisualBg });
+        this.visualBgChk.connect('toggled', () => {
+            this.visualBgBtn.set_sensitive(this.visualBgChk.get_active());
+            this.settings.useVisualBg = this.visualBgChk.get_active();
+            this.settings.save();
+            this.updateVisualPixbufs();
+        });
+        visualBottom.pack_start(this.visualBgChk, false, false, 0);
+
+        this.visualBgBtn = new Gtk.ColorButton({ sensitive: this.visualBgChk.get_active() });
+        let rgbaVbg = new Gdk.RGBA();
+        if (rgbaVbg.parse(this.settings.visualBgColor)) this.visualBgBtn.set_rgba(rgbaVbg);
+        this.visualBgBtn.connect('color-set', () => {
+            let rgba = this.visualBgBtn.get_rgba();
+            let r = Math.round(rgba.red * 255).toString(16).padStart(2, '0');
+            let g = Math.round(rgba.green * 255).toString(16).padStart(2, '0');
+            let b = Math.round(rgba.blue * 255).toString(16).padStart(2, '0');
+            this.settings.visualBgColor = '#' + r + g + b;
+            this.settings.save();
+            this.updateVisualPixbufs();
+        });
+        visualBottom.pack_start(this.visualBgBtn, false, false, 0);
+
         visualBottom.pack_start(new Gtk.Label({ label: "" }), true, true, 0);
         visualTab.pack_start(visualBottom, false, false, 0);
         this.rightNotebook.append_page(visualTab, new Gtk.Label({ label: "Визуально" }));
@@ -2589,15 +2612,16 @@ class MainWindow {
         let activeThemes = this.loadedThemes.filter(t => t.checked);
         let count = this.visualStore.iter_n_children(null);
         let isScaled = this.visualScaleChk ? this.visualScaleChk.get_active() : true;
-        
-        // Если не масштабируем, передаем -1
         let targetSize = isScaled ? this.settings.visualPreviewSize : -1;
+        
+        let bgOverride = this.settings.useVisualBg ? this.settings.visualBgColor : null;
+        let emptyBg = bgOverride || '#F0F0F0';
 
         for (let i = 0; i < count; i++) {
             let [ok, iter] = this.visualStore.get_iter_from_string(i.toString());
             if (!ok || !iter) continue;
 
-            let sz = this.visualStore.get_value(iter, 1); // 1 is integer size
+            let sz = this.visualStore.get_value(iter, 1);
             let rowData = [sz.toString(), sz];
             
             for (let theme of activeThemes) {
@@ -2605,10 +2629,10 @@ class MainWindow {
                 if (match) {
                     let pb = pixbufFromFileCached(match.fullPath, targetSize);
                     rowData.push(pb || getTransparentPixbuf());
-                    rowData.push(match.isSymlink ? '#D9E6F2' : '#FFFFFF');
+                    rowData.push(bgOverride || (match.isSymlink ? '#D9E6F2' : '#FFFFFF'));
                 } else {
                     rowData.push(getTransparentPixbuf());
-                    rowData.push('#F0F0F0');
+                    rowData.push(emptyBg);
                 }
             }
             
@@ -2770,7 +2794,15 @@ class MainWindow {
 
             row++;
         }
-        
+
+        // Настройка фона визуального инспектора
+        grid.attach(new Gtk.Label({ label: "Свой фон (Visual):", halign: Gtk.Align.START }), 0, row, 2, 1);
+        let visualBgBtn = new Gtk.ColorButton();
+        let rgbaVbg = new Gdk.RGBA();
+        if (rgbaVbg.parse(this.settings.visualBgColor)) visualBgBtn.set_rgba(rgbaVbg);
+        grid.attach(visualBgBtn, 2, row, 2, 1);
+        row++;
+
         // Настройка размера превью
         grid.attach(new Gtk.Label({ label: "Размер превью (Visual):", halign: Gtk.Align.START }), 0, row, 2, 1);
         let sizeSpin = Gtk.SpinButton.new_with_range(1, 1024, 1);
@@ -2809,6 +2841,11 @@ class MainWindow {
             if (this.currentSelectedIcon) {
                 this.updateVisualPixbufs();
             }
+            let rgbaVbg = visualBgBtn.get_rgba();
+            let rV = Math.round(rgbaVbg.red * 255).toString(16).padStart(2, '0');
+            let gV = Math.round(rgbaVbg.green * 255).toString(16).padStart(2, '0');
+            let bV = Math.round(rgbaVbg.blue * 255).toString(16).padStart(2, '0');
+            this.settings.visualBgColor = '#' + rV + gV + bV;
         }
         dialog.destroy();
     }
