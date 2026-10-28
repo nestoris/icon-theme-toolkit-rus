@@ -55,25 +55,31 @@ function pixbufFromFileCached(path, size) {
 
     let result = null;
     try {
-        let raw = GdkPixbuf.Pixbuf.new_from_file(path);
-        let w = raw.get_width();
-        let h = raw.get_height();
-
-        if (w === size && h === size) {
-            result = raw;
+        // Если это SVG, рендерим его сразу в нужном размере (без пикселизации)
+        if (path.toLowerCase().endsWith('.svg')) {
+            result = GdkPixbuf.Pixbuf.new_from_file_at_scale(path, size, size, true);
         } else {
-            const scale = Math.min(size / w, size / h);
-            const newW = Math.max(1, Math.round(w * scale));
-            const newH = Math.max(1, Math.round(h * scale));
-            const scaled = (newW === w && newH === h) ? raw : raw.scale_simple(newW, newH, GdkPixbuf.InterpType.NEAREST);
+            // Для растровых (PNG, XPM) используем NEAREST (без сглаживания)
+            let raw = GdkPixbuf.Pixbuf.new_from_file(path);
+            let w = raw.get_width();
+            let h = raw.get_height();
 
-            if (newW === size && newH === size) {
-                result = scaled;
+            if (w === size && h === size) {
+                result = raw;
             } else {
-                const canvas = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, true, 8, size, size);
-                canvas.fill(0x00000000);
-                scaled.copy_area(0, 0, newW, newH, canvas, Math.floor((size - newW) / 2), Math.floor((size - newH) / 2));
-                result = canvas;
+                const scale = Math.min(size / w, size / h);
+                const newW = Math.max(1, Math.round(w * scale));
+                const newH = Math.max(1, Math.round(h * scale));
+                const scaled = (newW === w && newH === h) ? raw : raw.scale_simple(newW, newH, GdkPixbuf.InterpType.NEAREST);
+
+                if (newW === size && newH === size) {
+                    result = scaled;
+                } else {
+                    const canvas = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, true, 8, size, size);
+                    canvas.fill(0x00000000);
+                    scaled.copy_area(0, 0, newW, newH, canvas, Math.floor((size - newW) / 2), Math.floor((size - newH) / 2));
+                    result = canvas;
+                }
             }
         }
     } catch (e) {
@@ -1837,7 +1843,12 @@ class MainWindow {
         infoTop.pack_start(this.inspectorImg, false, false, 0);
         
         let titleBox = new Gtk.Box({ orientation: Gtk.Orientation.VERTICAL });
-        this.inspectorTitle = new Gtk.Label({ label: "<b>Выберите значок</b>", use_markup: true, halign: Gtk.Align.START });
+        this.inspectorTitle = new Gtk.Label({ 
+            label: "<b>Выберите значок</b>", 
+            use_markup: true, 
+            halign: Gtk.Align.START,
+            selectable: true // <--- ДОБАВЛЕНО
+        });
         this.inspectorContext = new Gtk.Label({ label: "", halign: Gtk.Align.START, wrap: true });
         titleBox.pack_start(this.inspectorTitle, false, false, 0);
         titleBox.pack_start(this.inspectorContext, false, false, 0);
@@ -1859,7 +1870,8 @@ class MainWindow {
         this.infoStore = new Gtk.ListStore();
         this.infoStore.set_column_types([
             GObject.TYPE_STRING, GObject.TYPE_STRING, GObject.TYPE_STRING,
-            GObject.TYPE_STRING, GObject.TYPE_STRING, GObject.TYPE_STRING, GObject.TYPE_INT
+            GObject.TYPE_STRING, GObject.TYPE_STRING, GObject.TYPE_STRING, 
+            GObject.TYPE_INT, GObject.TYPE_STRING // <-- Добавлен 7-й тип (расширение)
         ]);
         this.infoView = new Gtk.TreeView({ model: this.infoStore, headers_clickable: true });
         
@@ -1869,6 +1881,7 @@ class MainWindow {
             ['Context', 2, false, 80,  2],
             ['Size',    3, false, 50,  6],
             ['Type',    4, false, 70,  4],
+            ['Ext',     7, false, 60,  7], // <-- Новая колонка
             ['Target',  5, true,  120, 5]
         ];
         for (let i = 0; i < infoCols.length; i++) {
@@ -2456,11 +2469,15 @@ class MainWindow {
         
         let previewPb = null;
         for (let o of entry.occurrences) {
-            if (!o.isSymlink) { previewPb = loadPixbufNoSmooth(o.fullPath, 64); if (previewPb) break; }
+            if (!o.isSymlink) { 
+                previewPb = pixbufFromFileCached(o.fullPath, 64); 
+                if (previewPb) break; 
+            }
         }
         if (!previewPb) {
             for (let o of entry.occurrences) {
-                previewPb = loadPixbufNoSmooth(o.fullPath, 64); if (previewPb) break;
+                previewPb = pixbufFromFileCached(o.fullPath, 64); 
+                if (previewPb) break;
             }
         }
         this.inspectorImg.set_from_pixbuf(previewPb);
@@ -2474,15 +2491,22 @@ class MainWindow {
         for (let occ of entry.occurrences) {
             let sizeText = occ.size != null ? String(occ.size) : '';
             let sizeKey = occ.size != null ? occ.size : 999999;
+            
+            // Извлекаем расширение файла (например, .png, .svg, .xpm)
+            let ext = "";
+            let dot = occ.fileName.lastIndexOf('.');
+            if (dot > 0) ext = occ.fileName.substring(dot).toLowerCase();
+
             let iter = this.infoStore.append();
-            this.infoStore.set(iter, [0, 1, 2, 3, 4, 5, 6], [
+            this.infoStore.set(iter, [0, 1, 2, 3, 4, 5, 6, 7], [
                 occ.theme.name,
                 occ.relPath || occ.dirName,
                 occ.context || '',
                 sizeText,
                 occ.isSymlink ? 'symlink' : 'file',
                 occ.target || '',
-                sizeKey
+                sizeKey,
+                ext
             ]);
         }
     }
