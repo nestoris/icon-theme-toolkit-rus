@@ -1,3 +1,27 @@
+Оригинальный файл будет удалён и заменён симлинком. Продолжить?
+The original file will be deleted and replaced with a symlink. Continue?
+
+Файл будет удалён и заменён симлинком на 
+The file will be deleted and replaced with a symlink to a 
+
+Ошибка изменения цели: 
+Error changing the target: 
+
+Ошибка обновления после операции: 
+Update error after operation: 
+
+Ошибка конвертации в файл: 
+Error converting to file: 
+
+Тот же формат 
+Same format 
+
+Ошибка конвертации: 
+Conversion error: 
+
+Расширение файла не совпадает!
+The file extension does not match!
+
 Если выключено, иконки отображаются в реальном размере
 If disabled, icons are displayed at their actual size
 
@@ -295,9 +319,6 @@ Created %d symlink(s) with %d error(s)
 Выберите master-файл
 Choose master file
 
-Файл
-File
-
 Выберите файл, который станет мастером. Другие файлы в этом контексте станут симлинками на него.
 Choose a file to become the master. Other files in this context will become symlinks to it.
 
@@ -445,12 +466,6 @@ Find targets
 Сохранить выбранное
 Save selected
 
-Закрыть
-Close
-
-Симлинк
-Symlink
-
 Цель (относительно симлинка)
 Target (relative to symlink)
 
@@ -547,12 +562,6 @@ Delete selected
 Файлы для имени: 
 Files for name: 
 
-симлинк
-symlink
-
-файл
-file
-
 Контекст
 Context
 
@@ -585,9 +594,6 @@ Filter:
 
 Поиск значка...
 Search icon...
-
-Все
-All
 
 Только в главной
 Only in main
@@ -678,9 +684,6 @@ Building table...
 
 Построение строк 
 Building rows 
-
- из 
- of 
 
 Нет в 
 Missing in 
@@ -834,6 +837,9 @@ Resulting path:
 
 Ошибка создания папки: 
 Error creating directory: 
+
+Ошибка создания симлинка: 
+Error creating symlink: 
 
 Каталог 
 Directory 
@@ -1045,6 +1051,21 @@ Create
 Показать все
 Show all
 
+/путь/к/
+/path/to/
+
+путь_к_теме
+path_to_theme
+
+Добавить
+Add
+
+Масштабировать
+Scale
+
+Свой фон
+Custom background
+
 ФАЙЛ
 FILE
 
@@ -1060,17 +1081,23 @@ SIZE
 иконка
 icon
 
-/путь/к/
-/path/to/
+Файл
+File
 
-путь_к_теме
-path_to_theme
+файл
+file
 
-Добавить
-Add
+Закрыть
+Close
 
-Масштабировать
-Scale
+Симлинк
+Symlink
 
-Свой фон
-Custom background
+симлинк
+symlink
+
+ из 
+ of 
+
+Все
+All

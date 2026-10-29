@@ -797,7 +797,8 @@ class MainWindow {
         this.isUpdatingVisual = false;
         this.visualPreviewSize = 48;
         this.currentSelectedIcon = null;
-        
+        this.convertedSymlinks = new Map(); // Хранит: абсолютный путь -> относительная цель
+
         // Если аргумент передан - используем его. Иначе грузим главную из настроек (но не открываем редактор)
         let initialPath = themePath || this.settings.mainThemePath;
         
@@ -2113,6 +2114,12 @@ class MainWindow {
         ]);
         // 0-Превью, 1-Каталог, 2-Контекст, 3-Размер, 4-Тип, 5-Цель
 
+        this.toolsRightFilesStore = new Gtk.ListStore();
+        this.toolsRightFilesStore.set_column_types([
+            GdkPixbuf.Pixbuf, GObject.TYPE_STRING, GObject.TYPE_STRING, GObject.TYPE_INT, GObject.TYPE_STRING, GObject.TYPE_STRING, GObject.TYPE_STRING
+        ]);
+        // 0-Превью, 1-Каталог, 2-Контекст, 3-Размер, 4-Тип, 5-Цель, 6-ОтносительныйПуть
+
         let viewRightFiles = new Gtk.TreeView({ model: this.toolsRightFilesStore, headers_clickable: true });
         
         let rfCols = [
@@ -2120,16 +2127,39 @@ class MainWindow {
             ["Размер", 3, false], ["Тип", 4, false], ["Цель", 5, true]
         ];
         for (let [title, idx, expand] of rfCols) {
-            let r = (idx === 0) ? new Gtk.CellRendererPixbuf() : new Gtk.CellRendererText();
-            if (idx > 0) r.set_property('ellipsize', 3);
+            let r;
+            if (idx === 0) {
+                r = new Gtk.CellRendererPixbuf();
+            } else if (idx === 4) {
+                r = new Gtk.CellRendererCombo({ editable: true, has_entry: false });
+                let typeModel = new Gtk.ListStore();
+                typeModel.set_column_types([GObject.TYPE_STRING]);
+                let it1 = typeModel.append(); typeModel.set(it1, [0], ["файл"]);
+                let it2 = typeModel.append(); typeModel.set(it2, [0], ["симлинк"]);
+                r.set_property('model', typeModel);
+                r.set_property('text-column', 0);
+            } else {
+                r = new Gtk.CellRendererText();
+                if (idx === 5) r.set_property('editable', true); // Редактируемая цель
+                if (idx > 0) r.set_property('ellipsize', 3);
+            }
+            
             let c = new Gtk.TreeViewColumn({ title: title, expand: expand });
             c.pack_start(r, true);
             c.add_attribute(r, idx === 0 ? 'pixbuf' : 'text', idx);
             c.set_sort_column_id(idx);
             c.set_resizable(true);
+            
+            // Подключаем обработчики
+            if (idx === 4) {
+                r.connect('edited', (w, path, newText) => this.onFileTypeEdited(path, newText));
+            } else if (idx === 5) {
+                r.connect('edited', (w, path, newText) => this.onFileTargetEdited(path, newText));
+            }
+            
             viewRightFiles.append_column(c);
         }
-        
+
         let scrollRightFiles = new Gtk.ScrolledWindow({ vexpand: true });
         scrollRightFiles.add(viewRightFiles);
         rightTopBox.pack_start(scrollRightFiles, true, true, 0);
@@ -2145,7 +2175,7 @@ class MainWindow {
         let tabList = new Gtk.Box({ orientation: Gtk.Orientation.VERTICAL, spacing: 5, margin: 4 });
         this.toolsRightStore = new Gtk.ListStore();
         this.toolsRightStore.set_column_types([GdkPixbuf.Pixbuf, GObject.TYPE_STRING, GObject.TYPE_STRING, GObject.TYPE_STRING]);
-        
+
         let viewList = new Gtk.TreeView({ model: this.toolsRightStore, headers_clickable: true });
         let rCols1 = [["", 0, false], ["Имя симлинка", 1, true], ["Адрес", 2, true], ["Контекст", 3, false]];
         for (let [title, idx, expand] of rCols1) {
@@ -2168,7 +2198,7 @@ class MainWindow {
         let topBox = new Gtk.Box({ orientation: Gtk.Orientation.VERTICAL, spacing: 5, margin: 4 });
         this.toolsRightTopStore = new Gtk.ListStore();
         this.toolsRightTopStore.set_column_types([GdkPixbuf.Pixbuf, GObject.TYPE_STRING, GObject.TYPE_STRING, GObject.TYPE_INT]);
-        
+
         let viewTop = new Gtk.TreeView({ model: this.toolsRightTopStore, headers_clickable: true });
         viewTop.get_selection().set_mode(Gtk.SelectionMode.MULTIPLE);
         let rColsTop = [["", 0, false], ["Имя", 1, true], ["Контекст", 2, false], ["Кол-во", 3, false]];
@@ -4867,7 +4897,6 @@ class MainWindow {
     }
 
     populateToolsRightPanel(name) {
-        // Очищаем все таблицы правой панели
         this.toolsRightFilesStore.clear();
         this.toolsRightStore.clear();
         this.toolsRightTopStore.clear();
@@ -4875,18 +4904,14 @@ class MainWindow {
         
         if (!name || !this.toolsReverseIndex) return;
 
-        // 1. Заполняем ВЕРХНЮЮ таблицу (Файлы выбранного имени)
         let occs = this.theme.icons.get(name) || [];
         for (let o of occs) {
             let pb = pixbufFromFileCached(o.fullPath, 24) || getTransparentPixbuf();
+            let relPath = o.dirName + '/' + o.fileName;
             let iter = this.toolsRightFilesStore.append();
-            this.toolsRightFilesStore.set(iter, [0, 1, 2, 3, 4, 5], [
-                pb, 
-                o.dirName, 
-                o.context || '', 
-                o.size || 0, 
-                o.isSymlink ? 'симлинк' : 'файл', 
-                o.target || ''
+            this.toolsRightFilesStore.set(iter, [0, 1, 2, 3, 4, 5, 6], [
+                pb, o.dirName, o.context || '', o.size || 0, 
+                o.isSymlink ? 'симлинк' : 'файл', o.target || '', relPath
             ]);
         }
 
@@ -4913,6 +4938,167 @@ class MainWindow {
             
             let iter = this.toolsRightTopStore.append();
             this.toolsRightTopStore.set(iter, [0, 1, 2, 3], [pb, gName, ctxStr, gRefs.length]);
+        }
+    }
+
+    onFileTypeEdited(pathStr, newType) {
+        let [ok, iter] = this.toolsRightFilesStore.get_iter_from_string(pathStr);
+        if (!ok) return;
+
+        let currentType = this.toolsRightFilesStore.get_value(iter, 4);
+        if (currentType === newType) return; // Ничего не изменилось
+
+        let relPath = this.toolsRightFilesStore.get_value(iter, 6);
+        let absPath = GLib.build_filenamev([this.theme.themeDir, relPath]);
+        let file = Gio.File.new_for_path(absPath);
+
+        if (newType === "файл") {
+            // Симлинк -> Файл
+            let target = this.toolsRightFilesStore.get_value(iter, 5);
+            if (!target) return;
+            
+            try {
+                let targetFile = Gio.File.new_for_path(absPath).get_parent().resolve_relative_path(target);
+                if (targetFile.query_exists(null)) {
+                    targetFile.copy(file, Gio.FileCopyFlags.OVERWRITE, null, null);
+                    this.convertedSymlinks.set(absPath, target); // Запоминаем старую цель
+                    
+                    this.toolsRightFilesStore.set(iter, [4, 5], ["файл", ""]);
+                    this.refreshThemeAfterFileOp().catch(e => print(e.message));
+                }
+            } catch (e) { print("Ошибка конвертации в файл: " + e.message); }
+        } 
+        else if (newType === "симлинк") {
+            // Файл -> Симлинк
+            let oldTarget = this.convertedSymlinks.get(absPath);
+            
+            if (oldTarget) {
+                // Оперативный возврат
+                // ... (код возврата остается без изменений)
+            } else {
+                // Выбор нового файла
+                let absDir = Gio.File.new_for_path(absPath).get_parent().get_path(); // <-- НАДЕЖНЫЙ ПУТЬ
+                let ext = GLib.path_get_basename(absPath).split('.').pop();
+                
+                let chooser = new Gtk.FileChooserDialog({
+                    title: "Выберите файл-цель (симлинк)",
+                    action: Gtk.FileChooserAction.OPEN,
+                    transient_for: this.window,
+                    modal: true
+                });
+                chooser.add_button("Отмена", Gtk.ResponseType.CANCEL);
+                chooser.add_button("Выбрать", Gtk.ResponseType.OK);
+                
+                // Устанавливаем папку назначения
+                chooser.set_current_folder(absDir); // <-- ТЕПЕРЬ ЗДЕСЬ ПРАВИЛЬНЫЙ ПУТЬ
+                
+                let filter = new Gtk.FileFilter();
+                filter.set_name("Тот же формат (*." + ext + ")");
+                filter.add_pattern("*." + ext);
+                chooser.add_filter(filter);
+
+                if (chooser.run() === Gtk.ResponseType.OK) {
+                    let chosenAbs = chooser.get_filename();
+                    let chosenExt = chosenAbs.split('.').pop();
+                    
+                    if (chosenExt !== ext) {
+                        let err = new Gtk.MessageDialog({ transient_for: this.window, modal: true, message_type: Gtk.MessageType.ERROR, buttons: Gtk.ButtonsType.OK, text: "Расширение файла не совпадает!" });
+                        err.run(); err.destroy();
+                    } else {
+                        // Подтверждение удаления файла
+                        let confirm = new Gtk.MessageDialog({ transient_for: this.window, modal: true, message_type: Gtk.MessageType.QUESTION, buttons: Gtk.ButtonsType.YES_NO, text: "Оригинальный файл будет удалён и заменён симлинком. Продолжить?" });
+                        if (confirm.run() === Gtk.ResponseType.YES) {
+                            try {
+                                let chosenFile = Gio.File.new_for_path(chosenAbs);
+                                let symlinkDir = Gio.File.new_for_path(absDir);
+                                let relTarget = symlinkDir.get_relative_path(chosenFile); // <-- ИСПРАВЛЕНО
+                                
+                                if (relTarget) {
+                                    file.delete(null);
+                                    file.make_symbolic_link(relTarget, null);
+                                    this.toolsRightFilesStore.set(iter, [4, 5], ["симлинк", relTarget]);
+                                    this.refreshThemeAfterFileOp();
+                                }
+                            } catch (e) { print("Ошибка создания симлинка: " + e.message); }
+                        }
+                        confirm.destroy();
+                    }
+                }
+                chooser.destroy();
+            }
+        }
+    }
+
+    onFileTargetEdited(pathStr, newTarget) {
+        let [ok, iter] = this.toolsRightFilesStore.get_iter_from_string(pathStr);
+        if (!ok) return;
+
+        let type = this.toolsRightFilesStore.get_value(iter, 4);
+        let oldTarget = this.toolsRightFilesStore.get_value(iter, 5);
+        let relPath = this.toolsRightFilesStore.get_value(iter, 6);
+        let absPath = GLib.build_filenamev([this.theme.themeDir, relPath]);
+
+        // ГЛАВНАЯ ПРОВЕРКА: Если текст не изменился, ничего не делаем
+        if (newTarget === oldTarget) return;
+
+        // Если это физический файл, предупреждаем
+        if (type === "файл") {
+            let confirm = new Gtk.MessageDialog({ 
+                transient_for: this.window, modal: true, message_type: Gtk.MessageType.QUESTION, 
+                buttons: Gtk.ButtonsType.YES_NO, 
+                text: `Файл будет удалён и заменён симлинком на "${newTarget}". Продолжить?` 
+            });
+            
+            if (confirm.run() !== Gtk.ResponseType.YES) {
+                confirm.destroy();
+                this.toolsRightFilesStore.set_value(iter, 5, ""); // Возвращаем пустую цель
+                return;
+            }
+            confirm.destroy();
+        }
+
+        try {
+            let file = Gio.File.new_for_path(absPath);
+            
+            // Создаем временный симлинк
+            let tempPath = absPath + ".tmp_link";
+            let tempFile = Gio.File.new_for_path(tempPath);
+            if (tempFile.query_exists(null)) tempFile.delete(null);
+            
+            // Вызываем метод у tempFile, передавая newTarget как аргумент
+            tempFile.make_symbolic_link(newTarget, null);
+            
+            // Если успешно, удаляем оригинал (если был) и переименовываем
+            if (file.query_exists(null)) file.delete(null);
+            tempFile.move(file, Gio.FileCopyFlags.OVERWRITE, null, null);
+            
+            // Обновляем строку в таблице
+            this.toolsRightFilesStore.set(iter, [4, 5], ["симлинк", newTarget]);
+            this.refreshThemeAfterFileOp().catch(e => print(e.message));
+            
+        } catch (e) {
+            print("Ошибка изменения цели: " + e.message);
+            
+            // При ошибке возвращаем старое значение
+            this.toolsRightFilesStore.set_value(iter, 5, oldTarget);
+            
+            let errDlg = new Gtk.MessageDialog({ 
+                transient_for: this.window, modal: true, message_type: Gtk.MessageType.ERROR, 
+                buttons: Gtk.ButtonsType.OK, text: "Ошибка: " + e.message 
+            });
+            errDlg.run(); errDlg.destroy();
+        }
+    }
+
+    async refreshThemeAfterFileOp() {
+        // Обновляем данные в памяти
+        this.theme = new ThemeModule.Theme(this.theme.indexPath);
+        
+        // Ждем завершения загрузки и перехватываем возможные ошибки
+        try {
+            await this.loadThemeData(this.theme.indexPath, true);
+        } catch (e) {
+            print("Ошибка обновления после операции: " + e.message);
         }
     }
 
