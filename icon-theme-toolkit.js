@@ -1006,6 +1006,15 @@ class MainWindow {
         btnAdd.connect('clicked', () => this.showAddSymlinkDialog(targetName));
         sideBox.pack_start(btnAdd, false, false, 0);
 
+        // НОВАЯ КНОПКА УДАЛЕНИЯ
+        let btnDeleteRow = new Gtk.Button({ 
+            image: Gtk.Image.new_from_icon_name("user-trash-symbolic", Gtk.IconSize.BUTTON), 
+            tooltip_text: "Физически удалить файлы и симлинки выделенного имени" 
+        });
+        btnDeleteRow.get_style_context().add_class("destructive-action");
+        btnDeleteRow.connect('clicked', () => this.deleteMatrixRow(view, store));
+        sideBox.pack_start(btnDeleteRow, false, false, 0);
+
         let btnEdit = new Gtk.Button({ image: Gtk.Image.new_from_icon_name("document-edit-symbolic", Gtk.IconSize.BUTTON), tooltip_text: "Редактировать существующие симлинки..." });
         btnEdit.connect('clicked', () => {
             let [ok, model, iter] = view.get_selection().get_selected();
@@ -1237,6 +1246,53 @@ class MainWindow {
             }
             confirm.destroy();
             this.loadThemeData(this.theme.themePath, true);
+        } else {
+            confirm.destroy();
+        }
+    }
+
+    deleteMatrixRow(view, store) {
+        let [ok, model, iter] = view.get_selection().get_selected();
+        if (!ok || !iter) {
+            let msg = new Gtk.MessageDialog({ transient_for: this.window, modal: true, message_type: Gtk.MessageType.WARNING, buttons: Gtk.ButtonsType.OK, text: "Сначала выберите строку с именем в таблице." });
+            msg.run(); msg.destroy(); return;
+        }
+
+        let sName = model.get_value(iter, 0);
+        let sOccs = this.theme.icons.get(sName) || [];
+        
+        if (sOccs.length === 0) return;
+
+        let confirm = new Gtk.MessageDialog({ 
+            transient_for: this.window, modal: true, message_type: Gtk.MessageType.QUESTION, 
+            buttons: Gtk.ButtonsType.YES_NO, 
+            text: `Удалить ВСЕ файлы и симлинки для имени "${sName}"?\n\nБудет удалено объектов: ${sOccs.length}. Это действие необратимо.` 
+        });
+        
+        if (confirm.run() === Gtk.ResponseType.YES) {
+            let errors = 0;
+            let deleted = 0;
+            
+            for (let o of sOccs) {
+                try {
+                    Gio.File.new_for_path(o.fullPath).delete(null);
+                    deleted++;
+                } catch (e) {
+                    errors++;
+                    print("Ошибка удаления " + o.fullPath + ": " + e.message);
+                }
+            }
+            
+            confirm.destroy();
+            
+            if (errors > 0) {
+                let errDlg = new Gtk.MessageDialog({ transient_for: this.window, modal: true, message_type: Gtk.MessageType.ERROR, buttons: Gtk.ButtonsType.OK, text: `Удалено: ${deleted}\nОшибок: ${errors}` });
+                errDlg.run(); errDlg.destroy();
+            }
+            
+            if (deleted > 0) {
+                this.loadThemeData(this.theme.themePath, true);
+            }
         } else {
             confirm.destroy();
         }

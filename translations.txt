@@ -1257,3 +1257,51 @@ symlink
 
 Действие
 Action
+
+Моно
+Mono
+
+Сохранить рядом с ICO .ini в формате winico2linuxtheme 
+Save next to the .ico file in the winico2linuxtheme format 
+
+(секции [defaults] и [bit-depth]).
+(sections [defaults] and [bit-depth]).
+
+Использование: gjs test-theme.js /путь/к/теме
+Usage: gjs test-theme.js /path/to/theme
+
+ОШИБКА ЗАГРУЗКИ:
+LOADING ERROR:
+
+Критическая ошибка: 
+Critical error: 
+
+Парсинг index.theme...
+Parsing index.theme...
+
+Готово
+Done
+
+ [ОПЦИИ] [ICO_ФАЙЛ]\n
+ [OPTIONS] [ICO_FILE]\n
+
+Примеры:
+Examples:
+
+' сопоставлен с папкой '
+' mapped to folder '
+
+Загружена тема: 
+Theme loaded: 
+
+Установлен ожидающий контекст: 
+A pending context has been set: 
+
+Физически удалить файлы и симлинки выделенного имени
+Physically delete files and symlinks for the selected name
+
+Удалить ВСЕ файлы и симлинки для имени "${sName}"?\n\nБудет удалено объектов: ${sOccs.length}. Это действие необратимо.
+Delete ALL files and symlinks for the name "${sName}"?\n\nNumber of objects to be deleted: ${sOccs.length}. This action cannot be undone.
+
+Удалено: ${deleted}\nОшибок: ${errors}
+Deleted: ${deleted}\nErrors: ${errors}
