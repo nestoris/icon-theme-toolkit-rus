@@ -1,3 +1,84 @@
+Преобразовать все размеры выделенного имени в файлы
+Convert all sizes of the selected name into files
+
+Удалить параметр
+Delete parameter
+
+Ошибка загрузки темы в редактор: 
+Error loading theme into the editor: 
+
+Добавить имя-симлинк...
+Add a name-symlink...
+
+Редактировать симлинки: 
+Edit symlinks: 
+
+Путь к симлинку
+Path to the symlink
+
+Редактировать существующие симлинки...
+Edit existing symlinks...
+
+Сначала выберите строку с именем в таблице.
+First, select the row with the name in the table.
+
+Отметить все доступные размеры. При сохранении для отмеченных ячеек будут созданы (или оставлены) симлинки.
+Select all available sizes. Upon saving, symlinks will be created (or retained) for the selected cells.
+
+Нет имён, ссылающихся на выбранный файл. Используйте 'Добавить имя-симлинк...'
+There are no names referencing the selected file. Use 'Add name/symlink...'
+
+Масштабировать превью (если выключено, иконки отображаются в реальном размере)
+Scale previews (if disabled, icons are displayed at their actual size)
+
+Снять выделение
+Deselect all
+
+Снять все галочки. При сохранении все существующие симлинки в этой матрице будут удалены.
+Clear all checkboxes. Upon saving, all existing symlinks in this matrix will be deleted.
+
+У имени "${sName}" нет симлинков.
+The name "${sName}" has no symlinks.
+
+У этого имени нет симлинков для преобразования.
+This name has no symlinks to resolve.
+
+ симлинков в файлы?
+ symlinks to files?
+
+ нового значка:
+ of new icon:
+
+Оригинал (из копии)
+Original (from a copy)
+
+Симлинк (и материализовать цель)
+Symlink (and materialize the target)
+
+<b>Симлинки на выбранное имя</b>
+<b>Symlinks for the selected name</b>
+
+Матрица симлинков на выбранное имя
+Symlink matrix for the selected name
+
+Шаблон пути:
+Path pattern:
+
+Путь к создаваемому симлинку
+Path to the symlink being created
+
+Файл уже существует и будет перезаписан
+The file already exists and will be overwritten
+
+Файл будет создан
+The file will be created
+
+Ищем файл для цели: 
+Searching for a file for the target: 
+
+Каталог для симлинка не существует:\n
+The directory for the symlink does not exist:\n
+
 Оригинальный файл будет удалён и заменён симлинком. Продолжить?
 The original file will be deleted and replaced with a symlink. Continue?
 
@@ -274,6 +355,9 @@ Context '
 ' будет установлен после загрузки темы
 ' will be set after theme loading
 
+Переменные: 
+Variables: 
+
 Загрузка темы из аргументов: 
 Loading theme from arguments: 
 
@@ -529,8 +613,14 @@ Will be overwritten
  (цепочка)
  (chain)
 
+Будет материализовано оригиналов: 
+Number of originals to be materialized: 
+
 Будет создано симлинков: 
 Symlinks to create: 
+
+Симлинки/Оригиналы: 
+Symlinks/Originals: 
 
 Будет удалено файлов/симлинков: 
 Files/symlinks to delete: 
@@ -603,6 +693,18 @@ Not in main
 
 Есть во всех, кроме главной
 In all except main
+
+Выберите каталог темы или 
+Select a theme directory or 
+
+Сбор данных о значках...
+Collecting icons data...
+
+отсутствует на диске
+missing on the disk
+
+содержит пробелы
+contains spaces
 
 Имя значка
 Icon name
@@ -1060,6 +1162,15 @@ path_to_theme
 Добавить
 Add
 
+Каталог цели
+Target directory
+
+Контекст цели
+Target context
+
+Обновлено: 
+Updated: 
+
 Масштабировать
 Scale
 
@@ -1101,3 +1212,48 @@ symlink
 
 Все
 All
+
+Преобразовать 
+Convert 
+
+Ошибок: 
+Errors: 
+
+Создано: 
+Created: 
+
+Исходный файл
+Source file
+
+Цвет текста
+Text color
+
+Цвет фона
+Background color
+
+Перезагрузка
+Reload
+
+Текущее: 
+Current: 
+
+Добавить имя-симлинк
+Add name-symlink
+
+не задано
+not specified
+
+Локализация
+Localization
+
+Оригинал
+Original
+
+симлинки
+symlinks
+
+симлинку
+symlink
+
+Действие
+Action
