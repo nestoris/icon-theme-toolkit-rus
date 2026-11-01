@@ -136,12 +136,6 @@ Import from ICO...
 Перезагрузить тему
 Reload theme
 
-Скрипт icon-compiler.js не найден в папке программы.
-icon-compiler.js script not found in program folder.
-
-Скрипт winico2linuxtheme.js не найден в папке программы.
-winico2linuxtheme.js script not found in program folder.
-
 Ошибка запуска: 
 Launch error: 
 
@@ -1305,3 +1299,13 @@ Delete ALL files and symlinks for the name "${sName}"?\n\nNumber of objects to b
 
 Удалено: ${deleted}\nОшибок: ${errors}
 Deleted: ${deleted}\nErrors: ${errors}
+
+Цепочки симлинков
+Symlink chains
+
+Битый симлинк (цель не существует)
+Broken symlink (target does not exist)
+
+Всё в порядке
+Everything is fine
+

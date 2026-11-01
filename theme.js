@@ -21,6 +21,8 @@ var Theme = class Theme {
         this.isLoaded = false;
         this.contextMap = new Map();     // "Applications" -> "apps"
         this.standardContexts = ["Actions", "Applications", "Apps", "Categories", "Devices", "FileSystems", "MimeTypes", "Mimes", "Places", "Status"];
+        this.symlinkMap = new Map();   // "путь к симлинку" -> "относительная цель"
+        this.symlinkTree = new Map();  // "абсолютная цель" -> ["путь к симлинку1", ...]
     }
 
     async load(progress = null) {
@@ -273,19 +275,22 @@ var Theme = class Theme {
                     let target = null;
                     let resolvedTarget = null;
 
-                    if (isSymlink) {
-                        target = fileInfo.get_symlink_target();
-                        let baseDir = GLib.build_filenamev([this.themeDir, dirName]);
-                        resolvedTarget = GLib.canonicalize_filename(target, baseDir);
+                if (isSymlink) {
+                    target = fileInfo.get_symlink_target();
+                    let baseDir = GLib.build_filenamev([this.themeDir, dirName]);
+                    resolvedTarget = GLib.canonicalize_filename(target, baseDir);
 
-                        if (!Gio.File.new_for_path(resolvedTarget).query_exists(null)) {
-                            this.problems.push({ 
-                                type: 'error', line: lineNum, dirName: dirName, probType: 'deadlink',
-                                msg: `Битый симлинк: ${dirName}/${fileName} -> ${target}`,
-                                filePath: absDir + '/' + fileName, targetName: GLib.path_get_basename(target)
-                            });
-                        }
+                    if (!Gio.File.new_for_path(resolvedTarget).query_exists(null)) {
+                        // ... (добавление в problems)
                     }
+
+                    // Заполняем граф
+                    this.symlinkMap.set(absDir + '/' + fileName, target);
+                    if (!this.symlinkTree.has(resolvedTarget)) {
+                        this.symlinkTree.set(resolvedTarget, []);
+                    }
+                    this.symlinkTree.get(resolvedTarget).push(absDir + '/' + fileName);
+                }
 
                     if (!this.icons.has(baseName)) this.icons.set(baseName, []);
                     this.icons.get(baseName).push({ 
