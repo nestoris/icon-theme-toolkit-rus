@@ -1309,3 +1309,14 @@ Broken symlink (target does not exist)
 Всё в порядке
 Everything is fine
 
+абсолютная цель
+absolute target
+
+относительная цель
+relative target
+
+путь к симлинку
+path to symlink
+
+симлинку
+symlink
