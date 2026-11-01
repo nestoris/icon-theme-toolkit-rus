@@ -10,10 +10,10 @@ cd ~/git/icon-theme-toolkit-rus
 
 # 2. Сгенерировать мастер-PO (en→ru)
 make po
-# или: awk -f build-po.awk translations.txt > locale/icon-theme-toolkit.po
+# или: awk -f build-po.awk translations.txt > locale/ru.po
 
 # 3. Скопировать PO в английский репозиторий (если он в другом каталоге)
-cp locale/icon-theme-toolkit.po ../icon-theme-toolkit/locale/
+cp locale/ru.po ../icon-theme-toolkit/locale/
 
 # 4. Отдать PO нейросети, получить fr.po, de.po, ... и положить их в
 #    ../icon-theme-toolkit/locale/<lang>/LC_MESSAGES/icon-theme-toolkit.po
