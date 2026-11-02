@@ -1320,3 +1320,6 @@ path to symlink
 
 симлинку
 symlink
+
+Запоминать открытые темы
+Remember opened themes

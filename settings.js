@@ -4,7 +4,9 @@ const GLib = imports.gi.GLib;
 
 var Settings = class Settings {
     constructor() {
+        this.sessionThemes = []; // Пути к index.theme открытых тем
         this.visualPreviewSize = 48; // Размер превью по умолчанию
+        this.rememberSession = false;
         const configDir = GLib.build_filenamev([
             GLib.get_user_config_dir(), 'icon-theme-toolkit']);
         try { GLib.mkdir_with_parents(configDir, 0o755); } catch (e) {}
@@ -42,7 +44,7 @@ var Settings = class Settings {
             try { this.bgColors.symlinksOnly = kf.get_string('colors', 'bg_symlinks_only') || '#FFFFFF'; } catch (e) {}
             try { this.bgColors.hasSymlinks  = kf.get_string('colors', 'bg_has_symlinks') || '#FFFFFF'; } catch (e) {}
             try { this.bgColors.ok           = kf.get_string('colors', 'bg_ok') || '#FFFFFF'; } catch (e) {}
-
+            try { this.rememberSession = kf.get_boolean('session', 'remember'); } catch (e) {}
             try { this.useColors.missing      = kf.get_boolean('colors', 'use_missing'); } catch (e) {}
             try { this.useColors.symlinksOnly = kf.get_boolean('colors', 'use_symlinks_only'); } catch (e) {}
             try { this.useColors.hasSymlinks  = kf.get_boolean('colors', 'use_has_symlinks'); } catch (e) {}
@@ -55,6 +57,18 @@ var Settings = class Settings {
             try { this.useVisualBg = kf.get_boolean('visual', 'use_bg'); } catch (e) {}
 
             try { this.mainThemePath = kf.get_string('main', 'theme_path') || ''; } catch (e) {}
+
+            // ЧТЕНИЕ СЕССИИ ТЕПЕРЬ ВНУТРИ TRY
+            this.sessionThemes = [];
+            try {
+                let countStr = kf.get_string('session', 'count') || '0';
+                let count = parseInt(countStr, 10) || 0;
+                for (let i = 0; i < count; i++) {
+                    let v = kf.get_string('session', 'theme_' + i);
+                    if (v) this.sessionThemes.push(v);
+                }
+            } catch (e) {}
+
         } catch (e) {
             // Файла нет — используем значения по умолчанию
         }
@@ -62,6 +76,12 @@ var Settings = class Settings {
 
     save() {
         const kf = new GLib.KeyFile();
+        let n = (this.sessionThemes || []).length;
+        kf.set_string('session', 'count', String(n));
+        for (let i = 0; i < n; i++) {
+            kf.set_string('session', 'theme_' + i, this.sessionThemes[i]);
+        }
+        kf.set_boolean('session', 'remember', this.rememberSession);
         kf.set_string('colors', 'missing', this.colors.missing);
         kf.set_string('colors', 'symlinks_only', this.colors.symlinksOnly);
         kf.set_string('colors', 'has_symlinks', this.colors.hasSymlinks);

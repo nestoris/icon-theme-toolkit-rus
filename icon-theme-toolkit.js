@@ -797,9 +797,9 @@ class MainWindow {
         this.isUpdatingVisual = false;
         this.visualPreviewSize = 48;
         this.currentSelectedIcon = null;
-        this.convertedSymlinks = new Map(); // Хранит: абсолютный путь -> относительная цель
+        this.convertedSymlinks = new Map(); 
+        this.isLoadingSession = true; // <--- ФЛАГ ЗАГРУЗКИ СЕССИИ
 
-        // Если аргумент передан - используем его. Иначе грузим главную из настроек (но не открываем редактор)
         let initialPath = themePath || this.settings.mainThemePath;
         
         this.theme = new ThemeModule.Theme(initialPath || ""); 
@@ -816,13 +816,32 @@ class MainWindow {
         this.window.show_all();
 
         if (initialPath) {
-            // Если тема передана в аргументах (или в настройках), загружаем её
-            this.loadThemeData(initialPath).catch(e => {
+            // Загружаем главную тему
+            this.loadThemeData(initialPath).then(async () => {
+                // Загружаем остальные темы только если включено запоминание
+                let otherPaths = this.settings.rememberSession 
+                    ? this.settings.sessionThemes.filter(p => p !== initialPath) 
+                    : [];
+                    
+                for (let path of otherPaths) {
+                    if (Gio.File.new_for_path(path).query_exists(null)) {
+                        await this.loadAndAddTheme(path, true); // Передаем isRestoring=true
+                    }
+                }
+                // Сессия загружена, теперь можно сохранять конфиг
+                this.isLoadingSession = false;
+                
+                // Убираем из конфига несуществующие пути
+                this.settings.sessionThemes = this.loadedThemes.map(t => t.indexPath);
+                this.settings.save();
+            }).catch(e => {
+                this.isLoadingSession = false;
                 print("Ошибка загрузки: " + e.message);
             });
+        } else {
+            this.isLoadingSession = false;
         }
 
-        // Переключаем вкладку ТОЛЬКО если тема пришла из аргументов
         if (themePath) {
             this.notebook.set_current_page(1);
         } else {
@@ -924,7 +943,7 @@ class MainWindow {
             treeView.expand_all();
 
             // 3. Создаем интерфейс
-            let dialog = new Gtk.Dialog({ title: "Матрица симлинков", transient_for: this.window, modal: true, default_width: 1000, default_height: 550 });
+            let dialog = new Gtk.Dialog({ title: "Матрица симлинков: " + targetName, transient_for: this.window, modal: true, default_width: 1000, default_height: 550 });
             
             let btnCancel = dialog.add_button("Отмена", Gtk.ResponseType.CANCEL);
             btnCancel.set_image(Gtk.Image.new_from_icon_name("process-stop-symbolic", Gtk.IconSize.BUTTON));
@@ -3416,9 +3435,9 @@ class MainWindow {
         }
     }
 
-    async loadAndAddTheme(indexPath) {
+    async loadAndAddTheme(indexPath, isRestoring = false) {
         for (let t of this.loadedThemes) {
-            if (t.indexPath === indexPath) return; // Уже загружена
+            if (t.indexPath === indexPath) return;
         }
         
         let themeName = GLib.path_get_basename(GLib.path_get_dirname(indexPath));
@@ -3430,22 +3449,21 @@ class MainWindow {
             ok = await theme.load(progress);
         } catch (e) {
             print("Ошибка загрузки: " + e.message);
-        } // <-- Убрали finally, чтобы не закрывать окно раньше времени
+        }
 
         if (ok) {
-            theme.checked = true;
+            theme.checked = !isRestoring; // Если восстанавливаем, галочка снята
             theme.isMain = false;
             this.loadedThemes.push(theme);
             this.renderChips();
             this.refreshVisualSizes();
             
-            // Передаем прогресс в пересборку таблицы
             await this.rebuildComparisonAsync(progress);
         } else if (!progress.isCancelled()) {
             print("Не удалось загрузить тему (возможно, это тема курсоров): " + indexPath);
         }
         
-        progress.close(); // <-- Закрываем окно только когда всё готово
+        progress.close();
     }
 
     async setMainTheme(theme) {
@@ -3543,6 +3561,11 @@ class MainWindow {
         grid.attach(visualBgBtn, 2, row, 2, 1);
         row++;
 
+        // Чекбокс запоминания сессии
+        this.rememberChk = new Gtk.CheckButton({ label: "Запоминать открытые темы", active: this.settings.rememberSession });
+        grid.attach(this.rememberChk, 0, row, 4, 1);
+        row++;
+
         // Настройка размера превью
         grid.attach(new Gtk.Label({ label: "Размер превью (Visual):", halign: Gtk.Align.START }), 0, row, 2, 1);
         let sizeSpin = Gtk.SpinButton.new_with_range(1, 1024, 1);
@@ -3572,7 +3595,8 @@ class MainWindow {
                 // Активность
                 this.settings.useColors[key] = useChecks[key].get_active();
             }
-            
+
+            this.settings.rememberSession = this.rememberChk.get_active();
             this.settings.visualPreviewSize = sizeSpin.get_value_as_int();
             this.settings.save();
             this.refreshVisualSizes();
@@ -3685,6 +3709,16 @@ class MainWindow {
         }
         this.chipsBox.show_all();
         this.refreshVisualSizes();
+        
+        // Сохраняем в конфиг только если это не процесс загрузки при старте
+        if (!this.isLoadingSession) {
+            if (this.settings.rememberSession) {
+                this.settings.sessionThemes = this.loadedThemes.map(t => t.indexPath);
+            } else {
+                this.settings.sessionThemes = []; // Очищаем, если не запоминаем
+            }
+            this.settings.save();
+        }
     }
 
     refreshVisualSizes() {
@@ -5423,7 +5457,7 @@ class MainWindow {
                 }
                 this.renderChips();
                 
-                await this.rebuildComparisonAsync(progress); // Передаем прогресс
+                await this.rebuildComparisonAsync(progress);
             }
             progress.close(); // <-- Закрываем в конце
         }
@@ -5516,6 +5550,12 @@ class MainWindow {
                 this.populateToolsRightPanel(null);
             }
         });
+        // Обновляем заголовок окна при смене темы
+        if (this.theme && this.theme.name) {
+            this.window.set_title("Icon Theme Toolkit — " + this.theme.name);
+        } else {
+            this.window.set_title("Icon Theme Toolkit");
+        }
     }
 
     populateToolsMasterStore(callback = null) {
